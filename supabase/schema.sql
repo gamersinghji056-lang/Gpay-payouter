@@ -1,0 +1,10 @@
+-- Phase 2 schema is maintained as ordered migrations.
+-- Apply with Supabase CLI: supabase db reset
+-- or deploy with: supabase db push
+--
+-- Migration order:
+-- 202609010001_phase2_foundation.sql
+-- 202609010002_secure_operations.sql
+-- 202609010003_credentials_storage.sql
+-- 202609010004_private_qr_storage.sql
+-- 202609010005_shared_collection_writes.sql
