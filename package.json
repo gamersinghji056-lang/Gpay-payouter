@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "worker": "node server/tron-watcher.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.0"

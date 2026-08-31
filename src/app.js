@@ -8,7 +8,7 @@ function id(p){return p+"_"+Math.random().toString(36).slice(2,8)+Date.now().toS
 function tok(){return id("share")+Math.random().toString(36).slice(2,12)}
 function today(){return new Date().toISOString().slice(0,10)}
 function nowIso(){return new Date().toISOString()}
-function money(n){return "â‚¹"+Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:2})}
+function money(n){return "\u20B9"+Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:2})}
 function usdt(n){return Number(n||0).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:6})+" USDT"}
 function num(n){return Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:2})}
 function dateFmt(s){if(!s)return "-";var d=s.length<=10?new Date(s+"T00:00:00"):new Date(s);return d.toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric"})}

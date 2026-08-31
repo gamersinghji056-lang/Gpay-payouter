@@ -8,3 +8,4 @@
 -- 202609010003_credentials_storage.sql
 -- 202609010004_private_qr_storage.sql
 -- 202609010005_shared_collection_writes.sql
+-- 202609010006_watcher_confirmation_lock.sql
