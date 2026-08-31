@@ -97,7 +97,8 @@ function subscribe(onChange) {
 
 async function login(email, password) { if (!configured) return false; const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) throw error; return true; }
 async function logout() { if (configured) await supabase.auth.signOut(); }
-async function authenticated() { if (!configured) return false; const { data: { user } } = await supabase.auth.getUser(); return Boolean(user); }
+async function authenticated() { if (!configured) return false; const { data: { user } } = await supabase.auth.getUser(); if (!user) return false; const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(); return profile?.role || ''; }
+async function archiveProvider(providerId, restore = false) { return callFunction('provider-write', { action: restore ? 'restore' : 'archive', provider_id: providerId }); }
 async function uploadQR(providerId, file, displayName) {
   const path = `${providerId}/${crypto.randomUUID()}-${displayName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
   const { error: uploadError } = await supabase.storage.from('provider-qr').upload(path, file, { contentType: file.type, upsert: false });
@@ -121,5 +122,5 @@ async function resolveShare(token) {
   return result;
 }
 
-export const backend = { configured, loadState, persistState, postLedger, callFunction, subscribe, login, logout, authenticated, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare };
+export const backend = { configured, loadState, persistState, postLedger, callFunction, subscribe, login, logout, authenticated, archiveProvider, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare };
 if (typeof window !== 'undefined') window.SettleFlow = { ...(window.SettleFlow || {}), backend };
