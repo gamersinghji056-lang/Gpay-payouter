@@ -26,6 +26,11 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return json({ data });
     }
+    if (body.action === "upi_operational_status") {
+      const { data, error } = await admin.rpc("set_upi_operational_status", { p_actor_id: user.id, p_upi_account_id: body.upi_account_id, p_operational: body.merchant_operational === true });
+      if (error) throw error;
+      return json({ data });
+    }
     if (["pause", "resume", "delete", "restore"].includes(body.action)) {
       if (role !== "admin") return json({ error: "admin authorization required" }, 403);
       if (!body.provider_id || typeof body.provider_id !== "string") return json({ error: "provider_id required" }, 400);

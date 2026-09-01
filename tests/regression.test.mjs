@@ -9,6 +9,7 @@ const shareAction = readFileSync("supabase/functions/share-action/index.ts", "ut
 const shareResolve = readFileSync("supabase/functions/share-resolve/index.ts", "utf8");
 const migration = readFileSync("supabase/migrations/20260901131107_production_consistency_pass.sql", "utf8");
 const multiUpi = readFileSync("supabase/migrations/20260901170000_multi_upi_accounts.sql", "utf8");
+const multiUpiOps = readFileSync("supabase/migrations/20260901180000_multi_upi_operations.sql", "utf8");
 const allMigrations = migration + "\n" + readFileSync("supabase/migrations/20260901100200_share_link_semantics.sql", "utf8");
 
 function test(name, fn) {
@@ -167,4 +168,23 @@ test("UPI status and navigation are visible in deployed UI", () => {
   assert.match(app, /expandReadonlyNav/);
   assert.match(app, /UPI Accounts/);
   assert.match(app, /User Commission/);
+});
+
+test("merchant collection can target an operational UPI account", () => {
+  assert.match(multiUpiOps, /p_upi_account_id uuid/);
+  assert.match(multiUpiOps, /merchant_operational/);
+  assert.match(shareAction, /p_upi_account_id: body\.upi_account_id/);
+});
+
+test("UPI operational status is server persisted and audited", () => {
+  assert.match(multiUpiOps, /set_upi_operational_status/);
+  assert.match(multiUpiOps, /upi_operational_status_changed/);
+  assert.match(providerWrite, /upi_operational_status/);
+});
+
+test("child-UPI credentials use private encrypted storage and reveal audit", () => {
+  const credentials = readFileSync("supabase/migrations/20260901173000_multi_upi_credentials.sql", "utf8");
+  assert.match(credentials, /private\.provider_upi_credentials/);
+  assert.match(credentials, /pgp_sym_encrypt/);
+  assert.match(credentials, /upi_gpay_password_revealed/);
 });
