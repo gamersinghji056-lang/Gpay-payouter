@@ -4,8 +4,8 @@ const configured = Boolean(supabase);
 const functionsUrl = configured ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1` : '';
 function rememberShareToken() {}
 
-function stateFromRows(fallback, settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts = []) {
-  const next = { settings: { ...fallback.settings }, users: [], entries: [], deposits: [], withdrawals: [], merchantSettlements: merchantSettlements || [], audit: [] };
+function stateFromRows(fallback, settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts = [], charges = []) {
+  const next = { settings: { ...fallback.settings }, users: [], entries: [], deposits: [], withdrawals: [], merchantSettlements: merchantSettlements || [], merchantCharges: (charges || []).map(row => ({ id: row.id, providerId: row.provider_id, upiAccountId: row.upi_account_id, amountInr: Number(row.amount_inr), userName: row.user_name, upiId: row.upi_id || '', mobile: row.mobile || '', date: row.charge_date, reference: row.reference || '', note: row.note || '', status: row.status, createdAt: row.created_at })), audit: [] };
   for (const link of shareLinks || []) if (link.public_token && link.is_active && (!link.expires_at || new Date(link.expires_at) > new Date())) { if (link.scope === 'merchant') next.settings.merchantToken = link.public_token; if (link.scope === 'agent') next.settings.agentToken = link.public_token; }
   if (settings) Object.assign(next.settings, {
     settlementRate: Number(settings.settlement_rate), depositBaseRate: Number(settings.deposit_base_rate),
@@ -38,7 +38,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
 
 async function loadState(fallback) {
   if (!configured) return fallback;
-  const [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts] = await Promise.all([
+  const [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts, charges] = await Promise.all([
     supabase.from('app_settings').select('*').eq('id', true).maybeSingle(),
     supabase.from('providers').select('id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active,status,pause_reason'),
     supabase.from('ledger_entries').select('*').order('transaction_date', { ascending: false }),
@@ -48,10 +48,11 @@ async function loadState(fallback) {
     supabase.from('merchant_settlements').select('*').order('created_at', { ascending: false }),
     supabase.from('share_links').select('scope,provider_id,public_token,is_active,expires_at').eq('is_active', true),
     supabase.from('provider_upi_accounts').select('id,provider_id,label,upi_id,mobile,apk_mobile,gpay_login_id,qr_data,status,merchant_operational,configured_limit_inr,allocated_limit_inr'),
+    supabase.from('merchant_charges').select('*').order('charge_date', { ascending: false }),
   ]);
-  const error = [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts].find(x => x.error)?.error;
+  const error = [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts, charges].find(x => x.error)?.error;
   if (error) throw error;
-  const state = stateFromRows(fallback, settings.data, providers.data, entries.data, deposits.data, qrs.data, withdrawals.data, merchantSettlements.data, shareLinks.data, upiAccounts.data);
+  const state = stateFromRows(fallback, settings.data, providers.data, entries.data, deposits.data, qrs.data, withdrawals.data, merchantSettlements.data, shareLinks.data, upiAccounts.data, charges.data);
   const accounting = await Promise.all((providers.data || []).map(row => supabase.rpc('accounting_for_provider', { p_provider_id: row.id })));
   accounting.forEach((result, index) => { if (!result.error && result.data?.[0]) {
     const user = state.users.find(item => item.remoteId === providers.data[index].id);
@@ -151,5 +152,7 @@ async function markWithdrawalPaid(requestId, proof) { return callFunction('finan
 async function requestWithdrawal(token, amountUsdt, address) { return shareAction(token, { action: 'withdrawal_request', amount_usdt: amountUsdt, destination_address: address }); }
 async function manualUserPayout(providerId, amountUsdt, address, proof) { return callFunction('financial-write', { action: 'manual_user_payout', provider_id: providerId, amount_usdt: amountUsdt, destination_address: address, proof_tx_hash: proof?.txHash, proof_url: proof?.url, proof_note: proof?.note }); }
 async function manualMerchantSettlement(amountUsdt, rate, proof) { return callFunction('financial-write', { action: 'manual_merchant_settlement', amount_usdt: amountUsdt, rate, proof_tx_hash: proof?.txHash, proof_url: proof?.url, proof_note: proof?.note, idempotency_key: proof?.idempotencyKey }); }
-export const backend = { configured, loadState, upsertProvider, upsertUpiAccount, allocateUpiCapacity, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal, manualUserPayout, manualMerchantSettlement };
+async function addMerchantCharge(charge) { return callFunction('financial-write', { action: 'merchant_charge', ...charge }); }
+async function reverseMerchantCharge(chargeId, idempotencyKey) { return callFunction('financial-write', { action: 'merchant_charge_reverse', charge_id: chargeId, idempotency_key: idempotencyKey }); }
+export const backend = { configured, loadState, upsertProvider, upsertUpiAccount, allocateUpiCapacity, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal, manualUserPayout, manualMerchantSettlement, addMerchantCharge, reverseMerchantCharge };
 if (typeof window !== 'undefined') window.SettleFlow = { ...(window.SettleFlow || {}), backend };

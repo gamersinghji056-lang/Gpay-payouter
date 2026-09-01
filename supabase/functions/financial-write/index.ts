@@ -10,6 +10,16 @@ Deno.serve(async (req) => {
   try {
     const { admin, user } = await requireStaff(req);
     const body = await req.json();
+    if (body.action === "merchant_charge") {
+      const { data, error } = await admin.rpc("add_merchant_charge", { p_actor_id: user.id, p_provider_id: body.provider_id, p_upi_account_id: body.upi_account_id ?? null, p_amount_inr: body.amount_inr, p_user_name: body.user_name, p_upi_id: body.upi_id ?? null, p_mobile: body.mobile ?? null, p_charge_date: body.charge_date ?? null, p_reference: body.reference ?? null, p_note: body.note ?? null, p_idempotency_key: body.idempotency_key ?? null });
+      if (error) throw error;
+      return json({ data });
+    }
+    if (body.action === "merchant_charge_reverse") {
+      const { data, error } = await admin.rpc("reverse_merchant_charge", { p_actor_id: user.id, p_charge_id: body.charge_id, p_idempotency_key: body.idempotency_key ?? null });
+      if (error) throw error;
+      return json({ data });
+    }
     if (body.action === "manual_user_payout") {
       const { data, error } = await admin.rpc("admin_manual_user_payout", { p_actor_id: user.id, p_provider_id: body.provider_id, p_amount_usdt: body.amount_usdt, p_destination_address: body.destination_address, p_proof_tx_hash: body.proof_tx_hash ?? null, p_proof_url: body.proof_url ?? null, p_proof_note: body.proof_note ?? null });
       if (error) throw error;

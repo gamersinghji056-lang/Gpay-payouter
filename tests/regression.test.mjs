@@ -10,6 +10,7 @@ const shareResolve = readFileSync("supabase/functions/share-resolve/index.ts", "
 const migration = readFileSync("supabase/migrations/20260901131107_production_consistency_pass.sql", "utf8");
 const multiUpi = readFileSync("supabase/migrations/20260901170000_multi_upi_accounts.sql", "utf8");
 const multiUpiOps = readFileSync("supabase/migrations/20260901180000_multi_upi_operations.sql", "utf8");
+const chargesMigration = readFileSync("supabase/migrations/20260901200000_merchant_charges.sql", "utf8");
 const allMigrations = migration + "\n" + readFileSync("supabase/migrations/20260901100200_share_link_semantics.sql", "utf8");
 
 function test(name, fn) {
@@ -187,4 +188,15 @@ test("child-UPI credentials use private encrypted storage and reveal audit", () 
   assert.match(credentials, /private\.provider_upi_credentials/);
   assert.match(credentials, /pgp_sym_encrypt/);
   assert.match(credentials, /upi_gpay_password_revealed/);
+});
+
+test("merchant charges are immutable, idempotent, and balance-authoritative", () => {
+  assert.match(chargesMigration, /create table if not exists public\.merchant_charges/);
+  assert.match(chargesMigration, /status text not null default 'active'/);
+  assert.match(chargesMigration, /merchant_available_balance_inr/);
+  assert.match(chargesMigration, /duplicate merchant charge request/);
+  assert.match(chargesMigration, /reverse_merchant_charge/);
+  assert.match(chargesMigration, /merchant_charge_reversed/);
+  assert.match(financialWrite, /merchant_charge/);
+  assert.match(shareResolve, /merchant_charges/);
 });
