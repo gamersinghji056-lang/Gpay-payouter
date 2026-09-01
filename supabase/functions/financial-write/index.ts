@@ -6,6 +6,16 @@ Deno.serve(async (req) => {
   try {
     const { admin, user } = await requireStaff(req);
     const body = await req.json();
+    if (body.action === "manual_user_payout") {
+      const { data, error } = await admin.rpc("admin_manual_user_payout", { p_actor_id: user.id, p_provider_id: body.provider_id, p_amount_usdt: body.amount_usdt, p_destination_address: body.destination_address, p_proof_tx_hash: body.proof_tx_hash ?? null, p_proof_url: body.proof_url ?? null, p_proof_note: body.proof_note ?? null });
+      if (error) throw error;
+      return json({ data });
+    }
+    if (body.action === "manual_merchant_settlement") {
+      const { data, error } = await admin.rpc("admin_manual_merchant_settlement", { p_actor_id: user.id, p_amount_usdt: body.amount_usdt, p_rate: body.rate ?? 107, p_proof_tx_hash: body.proof_tx_hash ?? null, p_proof_url: body.proof_url ?? null, p_proof_note: body.proof_note ?? null });
+      if (error) throw error;
+      return json({ data });
+    }
     if (body.action === "mark_withdrawal_paid") {
       const { data, error } = await admin.rpc("mark_withdrawal_paid", { p_actor_id: user.id, p_request_id: body.request_id, p_proof_tx_hash: body.proof_tx_hash ?? null, p_proof_url: body.proof_url ?? null, p_proof_note: body.proof_note ?? null });
       if (error) throw error;

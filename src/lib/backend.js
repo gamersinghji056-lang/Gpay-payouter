@@ -6,8 +6,8 @@ const SHARE_TOKEN_KEY = 'settleflow_share_tokens_v1';
 function shareTokens() { try { return JSON.parse(localStorage.getItem(SHARE_TOKEN_KEY) || '{}'); } catch { return {}; } }
 function rememberShareToken(scope, providerId, token) { const current = shareTokens(); if (scope === 'user') current.users = { ...(current.users || {}), [providerId]: token }; else current[scope] = token; localStorage.setItem(SHARE_TOKEN_KEY, JSON.stringify(current)); }
 
-function stateFromRows(fallback, settings, providers, entries, deposits, qrs, withdrawals) {
-  const next = { settings: { ...fallback.settings }, users: [], entries: [], deposits: [], withdrawals: [], audit: [] };
+function stateFromRows(fallback, settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements) {
+  const next = { settings: { ...fallback.settings }, users: [], entries: [], deposits: [], withdrawals: [], merchantSettlements: merchantSettlements || [], audit: [] };
   const tokens = shareTokens();
   next.settings.merchantToken = tokens.merchant || '';
   next.settings.agentToken = tokens.agent || '';
@@ -24,7 +24,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
       fundingMode: row.funding_model, limit: Number(row.commission_limit_inr || 0), depositAddress: row.unique_deposit_address || '',
       token: tokens.users?.[row.id] || '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id });
   }
-  next.entries = (entries || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id, type: row.entry_type,
+  next.entries = (entries || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id, type: row.entry_type, creditRate: row.credit_rate,
     amount: row.amount_inr == null ? undefined : Number(row.amount_inr), usdt: row.amount_usdt == null ? undefined : Number(row.amount_usdt),
     rate: row.rate == null ? undefined : Number(row.rate), merchantCommissionRate: row.merchant_commission_rate == null ? undefined : Number(row.merchant_commission_rate), merchantCommissionInr: row.merchant_commission_inr == null ? undefined : Number(row.merchant_commission_inr), bank: row.bank_name || '', account: row.account_number || '', date: row.transaction_date,
     note: row.note || '', status: row.status, createdAt: row.created_at, updatedAt: row.updated_at, enteredBy: row.created_by || 'backend',
@@ -41,17 +41,18 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
 
 async function loadState(fallback) {
   if (!configured) return fallback;
-  const [settings, providers, entries, deposits, qrs, withdrawals] = await Promise.all([
+  const [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements] = await Promise.all([
     supabase.from('app_settings').select('*').eq('id', true).maybeSingle(),
     supabase.from('providers').select('id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active,status,pause_reason'),
     supabase.from('ledger_entries').select('*').order('transaction_date', { ascending: false }),
     supabase.from('deposit_requests').select('*').order('created_at', { ascending: false }),
     supabase.from('provider_qr_codes').select('*'),
     supabase.from('withdrawal_requests').select('*').order('created_at', { ascending: false }),
+    supabase.from('merchant_settlements').select('*').order('created_at', { ascending: false }),
   ]);
-  const error = [settings, providers, entries, deposits, qrs, withdrawals].find(x => x.error)?.error;
+  const error = [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements].find(x => x.error)?.error;
   if (error) throw error;
-  const state = stateFromRows(fallback, settings.data, providers.data, entries.data, deposits.data, qrs.data, withdrawals.data);
+  const state = stateFromRows(fallback, settings.data, providers.data, entries.data, deposits.data, qrs.data, withdrawals.data, merchantSettlements.data);
   const accounting = await Promise.all((providers.data || []).map(row => supabase.rpc('accounting_for_provider', { p_provider_id: row.id })));
   accounting.forEach((result, index) => { if (!result.error && result.data?.[0]) {
     const user = state.users.find(item => item.remoteId === providers.data[index].id);
@@ -147,5 +148,7 @@ async function resolveShare(token) {
 async function shareAction(token, body) { return callPublicFunction('share-action', { token, ...body }); }
 async function markWithdrawalPaid(requestId, proof) { return callFunction('financial-write', { action: 'mark_withdrawal_paid', request_id: requestId, proof_tx_hash: proof?.txHash, proof_url: proof?.url, proof_note: proof?.note }); }
 async function requestWithdrawal(token, amountUsdt, address) { return shareAction(token, { action: 'withdrawal_request', amount_usdt: amountUsdt, destination_address: address }); }
-export const backend = { configured, loadState, upsertProvider, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal };
+async function manualUserPayout(providerId, amountUsdt, address, proof) { return callFunction('financial-write', { action: 'manual_user_payout', provider_id: providerId, amount_usdt: amountUsdt, destination_address: address, proof_tx_hash: proof?.txHash, proof_url: proof?.url, proof_note: proof?.note }); }
+async function manualMerchantSettlement(amountUsdt, rate, proof) { return callFunction('financial-write', { action: 'manual_merchant_settlement', amount_usdt: amountUsdt, rate, proof_tx_hash: proof?.txHash, proof_url: proof?.url, proof_note: proof?.note }); }
+export const backend = { configured, loadState, upsertProvider, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal, manualUserPayout, manualMerchantSettlement };
 if (typeof window !== 'undefined') window.SettleFlow = { ...(window.SettleFlow || {}), backend };

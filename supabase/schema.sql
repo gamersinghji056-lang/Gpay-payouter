@@ -15,3 +15,4 @@
 -- 20260901083933_fix_share_token_generation.sql
 -- 20260901091328_enforce_deposit_provider_and_errors.sql
 -- 20260901093924_withdrawal_requests_and_settlement.sql
+-- 20260901100000_manual_usdt_accounting.sql
