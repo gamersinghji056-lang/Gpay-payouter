@@ -22,10 +22,8 @@ Deno.serve(async (req) => {
     if (provider.status === "paused") return publicJson({ error: `Provider is paused: ${provider.pause_reason || "temporarily unavailable"}` }, 409);
     if (body.action === "collection_update" && link.scope === "merchant") {
       if (!body.entry_id || body.provider_id !== providerId) return publicJson({ error: "collection entry is required" }, 400);
-      const { data, error } = await admin.from("ledger_entries").update({ amount_inr: body.amount_inr, note: body.note ?? null, updated_at: new Date().toISOString() }).eq("id", body.entry_id).eq("provider_id", providerId).eq("entry_type", "collection").select().single();
+      const { data, error } = await admin.rpc("correct_collection_by_share", { p_share_link_id: link.id, p_entry_id: body.entry_id, p_amount_inr: body.amount_inr, p_note: body.note ?? null });
       if (error) throw error;
-      const { error: auditError } = await admin.from("audit_logs").insert({ actor_id: link.created_by, action: "collection_corrected", entity_type: "ledger_entry", entity_id: body.entry_id, new_data: { amount_inr: body.amount_inr, note: body.note ?? null, source: "merchant_share" } });
-      if (auditError) throw auditError;
       return publicJson({ data });
     }
     if (body.action === "withdrawal_request") {

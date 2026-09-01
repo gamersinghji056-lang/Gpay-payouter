@@ -2,15 +2,10 @@ import { supabase } from './supabase.js';
 
 const configured = Boolean(supabase);
 const functionsUrl = configured ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1` : '';
-const SHARE_TOKEN_KEY = 'settleflow_share_tokens_v1';
-function shareTokens() { try { return JSON.parse(localStorage.getItem(SHARE_TOKEN_KEY) || '{}'); } catch { return {}; } }
-function rememberShareToken(scope, providerId, token) { const current = shareTokens(); if (scope === 'user') current.users = { ...(current.users || {}), [providerId]: token }; else current[scope] = token; localStorage.setItem(SHARE_TOKEN_KEY, JSON.stringify(current)); }
+function rememberShareToken() {}
 
 function stateFromRows(fallback, settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks) {
   const next = { settings: { ...fallback.settings }, users: [], entries: [], deposits: [], withdrawals: [], merchantSettlements: merchantSettlements || [], audit: [] };
-  const tokens = shareTokens();
-  next.settings.merchantToken = tokens.merchant || '';
-  next.settings.agentToken = tokens.agent || '';
   for (const link of shareLinks || []) if (link.public_token && link.is_active && (!link.expires_at || new Date(link.expires_at) > new Date())) { if (link.scope === 'merchant') next.settings.merchantToken = link.public_token; if (link.scope === 'agent') next.settings.agentToken = link.public_token; }
   if (settings) Object.assign(next.settings, {
     settlementRate: Number(settings.settlement_rate), depositBaseRate: Number(settings.deposit_base_rate),
@@ -23,7 +18,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
     next.users.push({ id: row.user_code, name: row.name, telegram: row.telegram_username || '', upi: row.upi_id || '',
       mobile: row.mobile || '', apk: row.apk_mobile || '', gpayLogin: row.gpay_login_id || '', qrs: [],
       fundingMode: row.funding_model, limit: Number(row.commission_limit_inr || 0), depositAddress: row.unique_deposit_address || '',
-      token: (shareLinks || []).find(link => link.scope === 'user' && link.provider_id === row.id && link.public_token && link.is_active)?.public_token || tokens.users?.[row.id] || '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id });
+      token: (shareLinks || []).find(link => link.scope === 'user' && link.provider_id === row.id && link.public_token && link.is_active)?.public_token || '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id });
   }
   next.entries = (entries || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id, type: row.entry_type, creditRate: row.credit_rate,
     amount: row.amount_inr == null ? undefined : Number(row.amount_inr), usdt: row.amount_usdt == null ? undefined : Number(row.amount_usdt),
@@ -85,7 +80,7 @@ async function callPublicFunction(name, body) {
 }
 
 async function upsertProvider(provider) {
-  return callFunction('provider-write', { action: 'upsert', user_code: provider.id, name: provider.name, telegram_username: provider.telegram,
+  return callFunction('provider-write', { action: 'upsert', provider_id: provider.remoteId || null, user_code: provider.id, name: provider.name, telegram_username: provider.telegram,
     upi_id: provider.upi, mobile: provider.mobile, apk_mobile: provider.apk, gpay_login_id: provider.gpayLogin,
     funding_model: provider.fundingMode, commission_limit_inr: provider.limit, unique_deposit_address: provider.depositAddress, is_active: provider.active });
 }
@@ -151,6 +146,6 @@ async function shareAction(token, body) { return callPublicFunction('share-actio
 async function markWithdrawalPaid(requestId, proof) { return callFunction('financial-write', { action: 'mark_withdrawal_paid', request_id: requestId, proof_tx_hash: proof?.txHash, proof_url: proof?.url, proof_note: proof?.note }); }
 async function requestWithdrawal(token, amountUsdt, address) { return shareAction(token, { action: 'withdrawal_request', amount_usdt: amountUsdt, destination_address: address }); }
 async function manualUserPayout(providerId, amountUsdt, address, proof) { return callFunction('financial-write', { action: 'manual_user_payout', provider_id: providerId, amount_usdt: amountUsdt, destination_address: address, proof_tx_hash: proof?.txHash, proof_url: proof?.url, proof_note: proof?.note }); }
-async function manualMerchantSettlement(amountUsdt, rate, proof) { return callFunction('financial-write', { action: 'manual_merchant_settlement', amount_usdt: amountUsdt, rate, proof_tx_hash: proof?.txHash, proof_url: proof?.url, proof_note: proof?.note }); }
+async function manualMerchantSettlement(amountUsdt, rate, proof) { return callFunction('financial-write', { action: 'manual_merchant_settlement', amount_usdt: amountUsdt, rate, proof_tx_hash: proof?.txHash, proof_url: proof?.url, proof_note: proof?.note, idempotency_key: proof?.idempotencyKey }); }
 export const backend = { configured, loadState, upsertProvider, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal, manualUserPayout, manualMerchantSettlement };
 if (typeof window !== 'undefined') window.SettleFlow = { ...(window.SettleFlow || {}), backend };

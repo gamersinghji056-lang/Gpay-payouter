@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "test": "node tests/regression.test.mjs",
     "preview": "vite preview",
     "worker": "node server/tron-watcher.js"
   },

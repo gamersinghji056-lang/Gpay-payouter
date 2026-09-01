@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
       return json({ data });
     }
     if (body.action === "manual_merchant_settlement") {
-      const { data, error } = await admin.rpc("admin_manual_merchant_settlement", { p_actor_id: user.id, p_amount_usdt: body.amount_usdt, p_rate: body.rate ?? 107, p_proof_tx_hash: body.proof_tx_hash ?? null, p_proof_url: body.proof_url ?? null, p_proof_note: body.proof_note ?? null });
+      const { data, error } = await admin.rpc("admin_manual_merchant_settlement", { p_actor_id: user.id, p_amount_usdt: body.amount_usdt, p_rate: body.rate ?? 107, p_proof_tx_hash: body.proof_tx_hash ?? null, p_proof_url: body.proof_url ?? null, p_proof_note: body.proof_note ?? null, p_idempotency_key: body.idempotency_key ?? null });
       if (error) throw error;
       return json({ data });
     }

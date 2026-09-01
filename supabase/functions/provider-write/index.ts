@@ -23,14 +23,24 @@ Deno.serve(async (req) => {
       return json({ data });
     }
     if (body.action !== "upsert" || !body.user_code || !body.name || !["deposit", "commission"].includes(body.funding_model)) return json({ error: "invalid provider payload" }, 400);
-    const { data, error } = await admin.from("providers").upsert({
+    const changes = {
       user_code: body.user_code, name: body.name, telegram_username: body.telegram_username ?? null, upi_id: body.upi_id ?? null,
       mobile: body.mobile ?? null, apk_mobile: body.apk_mobile ?? null, gpay_login_id: body.gpay_login_id ?? null,
-      funding_model: body.funding_model, commission_limit_inr: body.commission_limit_inr ?? 0,
-      unique_deposit_address: body.unique_deposit_address ?? null, is_active: body.is_active !== false, created_by: user.id,
-    }, { onConflict: "user_code" }).select().single();
+      funding_model: body.funding_model, commission_limit_inr: Number(body.commission_limit_inr ?? 0),
+      unique_deposit_address: body.unique_deposit_address ?? null, is_active: body.is_active !== false, updated_at: new Date().toISOString(),
+    };
+    let data;
+    let error;
+    if (body.provider_id) {
+      ({ data, error } = await admin.from("providers").update(changes).eq("id", body.provider_id).select().single());
+    } else {
+      ({ data, error } = await admin.from("providers").upsert({ ...changes, created_by: user.id }, { onConflict: "user_code" }).select().single());
+    }
     if (error) throw error;
-    await admin.from("audit_logs").insert({ actor_id: user.id, action: "provider_upserted", entity_type: "provider", entity_id: data.id, new_data: body });
-    return json({ data });
+    const { data: persisted, error: verifyError } = await admin.from("providers").select("*").eq("id", data.id).single();
+    if (verifyError) throw verifyError;
+    if (Number(persisted.commission_limit_inr || 0) !== changes.commission_limit_inr || persisted.funding_model !== changes.funding_model || persisted.name !== changes.name) throw new Error("provider update was not persisted");
+    await admin.from("audit_logs").insert({ actor_id: user.id, action: "provider_upserted", entity_type: "provider", entity_id: persisted.id, new_data: body });
+    return json({ data: persisted });
   } catch (error) { return json({ error: error instanceof Error ? error.message : "request failed" }, 400); }
 });
