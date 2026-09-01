@@ -206,3 +206,8 @@ test("incomplete share URLs are guarded in the rendered UI", () => {
   assert.match(app, /Regeneration required/);
   assert.match(app, /button\.disabled=true/);
 });
+
+test("manual user payout carries idempotency to the database", () => {
+  assert.match(financialWrite, /p_idempotency_key/);
+  assert.match(backend, /idempotency_key: proof\?\.idempotencyKey/);
+});

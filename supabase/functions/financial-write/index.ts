@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
       return json({ data });
     }
     if (body.action === "manual_user_payout") {
-      const { data, error } = await admin.rpc("admin_manual_user_payout", { p_actor_id: user.id, p_provider_id: body.provider_id, p_amount_usdt: body.amount_usdt, p_destination_address: body.destination_address, p_proof_tx_hash: body.proof_tx_hash ?? null, p_proof_url: body.proof_url ?? null, p_proof_note: body.proof_note ?? null });
+      const { data, error } = await admin.rpc("admin_manual_user_payout", { p_actor_id: user.id, p_provider_id: body.provider_id, p_amount_usdt: body.amount_usdt, p_destination_address: body.destination_address, p_proof_tx_hash: body.proof_tx_hash ?? null, p_proof_url: body.proof_url ?? null, p_proof_note: body.proof_note ?? null, p_idempotency_key: body.idempotency_key ?? null });
       if (error) throw error;
       return json({ data });
     }
