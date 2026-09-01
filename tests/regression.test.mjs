@@ -211,3 +211,59 @@ test("manual user payout carries idempotency to the database", () => {
   assert.match(financialWrite, /p_idempotency_key/);
   assert.match(backend, /idempotency_key: proof\?\.idempotencyKey/);
 });
+
+test("deposit user navigation omits withdraw tab and funds shows deposit metrics", () => {
+  assert.match(app, /if\(u\.fundingMode==="commission"\)tabs\.push\(\["withdraw","Withdraw"\]\)/);
+  assert.match(app, /Confirmed USDT/);
+  assert.match(app, /Credit Rate/);
+  assert.match(app, /110\.21/);
+  assert.match(app, /Deposit Address/);
+});
+
+test("public user history includes ledger, withdrawals, and deposit sources", () => {
+  assert.match(app, /function userHistoryRows/);
+  assert.match(app, /db\.withdrawals\|\|\[\]/);
+  assert.match(app, /Commission Withdrawal Request/);
+  assert.match(app, /db\.deposits\|\|\[\]/);
+  assert.match(app, /USDT Deposit/);
+});
+
+test("merchant history includes settlements, withdrawals, charges, and reversals", () => {
+  assert.match(app, /function merchantHistoryRows/);
+  assert.match(app, /Paid Merchant Withdrawal/);
+  assert.match(app, /Manual Merchant Settlement/);
+  assert.match(app, /Charge Reversal/);
+});
+
+test("admin transactions aggregate all major persisted sources", () => {
+  assert.match(app, /function adminHistoryRows/);
+  assert.match(app, /Merchant Settlement/);
+  assert.match(app, /User Commission Withdrawal/);
+  assert.match(app, /Manual USDT Top-up/);
+  assert.match(app, /Merchant Charge/);
+});
+
+test("manual user payout opens payout modal instead of user detail", () => {
+  assert.match(app, /onclick="SF\.userPayoutModal/);
+  assert.doesNotMatch(app, /Manual Payout<\/button><\/div>'\}\)\.join\(""\),pending[\s\S]*SF\.openUser/);
+});
+
+test("merchant account UI exposes GPay, QR, status switch, and disables collection when stopped", () => {
+  assert.match(app, /GPay Details/);
+  assert.match(app, /SF\.openQR/);
+  assert.match(app, /Running  ON/);
+  assert.match(app, /Stopped  OFF/);
+  assert.match(app, /disabled/);
+});
+
+test("QR manager renders legacy and child QR surfaces", () => {
+  assert.match(app, /Primary \/ Legacy QR/);
+  assert.match(app, /Upload QR/);
+  assert.match(app, /qr_upload/);
+});
+
+test("mutation refresh keeps active public page", () => {
+  assert.match(app, /window\.__publicPage=key/);
+  assert.match(app, /publicUserPage\(window\.__publicPage\)/);
+  assert.match(app, /window\.SF\.publicMerchantPage\(window\.__publicPage\|\|"dashboard"\)/);
+});
