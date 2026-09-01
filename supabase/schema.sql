@@ -10,3 +10,4 @@
 -- 202609010005_shared_collection_writes.sql
 -- 202609010006_watcher_confirmation_lock.sql
 -- 202609010007_provider_status_pause.sql
+-- 202609010008_fix_paused_provider_active_flag.sql

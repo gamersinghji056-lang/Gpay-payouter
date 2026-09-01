@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
       if (readError || !provider) return json({ error: "provider not found" }, 404);
       const nextStatus = body.action === "pause" ? "paused" : body.action === "delete" ? "deleted" : "active";
       if (body.action === "pause" && (!body.pause_reason || typeof body.pause_reason !== "string" || !body.pause_reason.trim())) return json({ error: "pause reason required" }, 400);
-      const nextActive = nextStatus === "active";
+      const nextActive = nextStatus !== "deleted";
       const changes = { status: nextStatus, is_active: nextActive, pause_reason: nextStatus === "paused" ? body.pause_reason.trim() : null, paused_at: nextStatus === "paused" ? new Date().toISOString() : null, paused_by: nextStatus === "paused" ? user.id : null, updated_at: new Date().toISOString() };
       const { data, error } = await admin.from("providers").update(changes).eq("id", provider.id).select().single();
       if (error) throw error;
