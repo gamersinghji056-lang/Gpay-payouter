@@ -23,9 +23,13 @@ Deno.serve(async (req) => {
     if (body.action === "get") {
       let query = admin.from("share_links").select("id,scope,provider_id,public_token,expires_at").eq("scope", body.scope).eq("is_active", true).is("expires_at", null);
       query = body.scope === "user" ? query.eq("provider_id", body.provider_id) : query.is("provider_id", null);
-      const { data, error } = await query.order("created_at", { ascending: false }).limit(1);
+      const { data, error } = await query.order("created_at", { ascending: false });
       if (error) throw error;
-      return corsJson({ data: data?.[0] || null });
+      const current = (data || []).find(row => row.public_token);
+      if (current) return corsJson({ data: current });
+      const { data: repaired, error: repairError } = await admin.rpc("create_share_link", { p_actor_id: user.id, p_scope: body.scope, p_provider_id: body.provider_id ?? null, p_expires_at: null });
+      if (repairError) throw repairError;
+      return corsJson({ data: repaired?.[0] ? { id: repaired[0].id, scope: body.scope, provider_id: body.provider_id ?? null, public_token: repaired[0].token, expires_at: null } : null });
     }
     if (body.action === "revoke") {
       const { error } = await admin.rpc("revoke_share_link", { p_actor_id: user.id, p_link_id: body.link_id });

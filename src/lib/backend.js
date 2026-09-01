@@ -52,7 +52,9 @@ async function loadState(fallback) {
   ]);
   const error = [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts, charges].find(x => x.error)?.error;
   if (error) throw error;
+  for (const link of shareLinks.data || []) if (!link.public_token) { const repaired = await callFunction('share-link', { action: 'get', scope: link.scope, provider_id: link.provider_id }); if (repaired.data?.public_token) link.public_token = repaired.data.public_token; }
   const state = stateFromRows(fallback, settings.data, providers.data, entries.data, deposits.data, qrs.data, withdrawals.data, merchantSettlements.data, shareLinks.data, upiAccounts.data, charges.data);
+  await Promise.all(state.users.flatMap(user => user.upiAccounts.map(async account => { const { data } = await supabase.rpc('accounting_for_upi', { p_upi_account_id: account.id }); const value = data?.[0]; if (value) { account.accounting = value; account.collection = Number(value.total_collection_inr || 0); account.availableLimit = Number(value.available_limit_inr || 0); } })));
   const accounting = await Promise.all((providers.data || []).map(row => supabase.rpc('accounting_for_provider', { p_provider_id: row.id })));
   accounting.forEach((result, index) => { if (!result.error && result.data?.[0]) {
     const user = state.users.find(item => item.remoteId === providers.data[index].id);
@@ -138,6 +140,9 @@ async function deleteQR(qr) {
 }
 async function saveCredential(providerId, password, upiAccountId) { return callFunction('credential-reveal', { action: 'set', provider_id: providerId, upi_account_id: upiAccountId, password }); }
 async function revealCredential(providerId, upiAccountId) { const result = await callFunction('credential-reveal', { action: 'reveal', provider_id: providerId, upi_account_id: upiAccountId }); return result.password; }
+async function revealPublicCredential(token, upiAccountId) { const result = await callPublicFunction('credential-reveal', { action: 'reveal', public_token: token, upi_account_id: upiAccountId }); return result.password; }
+async function savePublicCredential(token, upiAccountId, password) { return callPublicFunction('credential-reveal', { action: 'set', public_token: token, upi_account_id: upiAccountId, password }); }
+async function userUpiAction(token, body) { return callPublicFunction('share-action', { token, ...body }); }
 async function resolveShare(token) {
   const result = await callPublicFunction('share-resolve', { token });
   if (result.state) {
@@ -154,5 +159,5 @@ async function manualUserPayout(providerId, amountUsdt, address, proof) { return
 async function manualMerchantSettlement(amountUsdt, rate, proof) { return callFunction('financial-write', { action: 'manual_merchant_settlement', amount_usdt: amountUsdt, rate, proof_tx_hash: proof?.txHash, proof_url: proof?.url, proof_note: proof?.note, idempotency_key: proof?.idempotencyKey }); }
 async function addMerchantCharge(charge) { return callFunction('financial-write', { action: 'merchant_charge', ...charge }); }
 async function reverseMerchantCharge(chargeId, idempotencyKey) { return callFunction('financial-write', { action: 'merchant_charge_reverse', charge_id: chargeId, idempotency_key: idempotencyKey }); }
-export const backend = { configured, loadState, upsertProvider, upsertUpiAccount, allocateUpiCapacity, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal, manualUserPayout, manualMerchantSettlement, addMerchantCharge, reverseMerchantCharge };
+export const backend = { configured, loadState, upsertProvider, upsertUpiAccount, allocateUpiCapacity, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, revealPublicCredential, savePublicCredential, userUpiAction, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal, manualUserPayout, manualMerchantSettlement, addMerchantCharge, reverseMerchantCharge };
 if (typeof window !== 'undefined') window.SettleFlow = { ...(window.SettleFlow || {}), backend };
