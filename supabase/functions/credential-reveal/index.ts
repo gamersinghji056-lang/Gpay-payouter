@@ -9,12 +9,16 @@ Deno.serve(async (req) => {
     const key = Deno.env.get("GPAY_CREDENTIAL_ENCRYPTION_KEY");
     if (!key) throw new Error("credential encryption is not configured");
     if (body.action === "set") {
-      const { error } = await admin.rpc("set_gpay_credentials", { p_actor_id: user.id, p_provider_id: body.provider_id, p_password: body.password, p_encryption_key: key });
+      const { error } = body.upi_account_id
+        ? await admin.rpc("set_upi_gpay_credentials", { p_actor_id: user.id, p_upi_account_id: body.upi_account_id, p_password: body.password, p_encryption_key: key })
+        : await admin.rpc("set_gpay_credentials", { p_actor_id: user.id, p_provider_id: body.provider_id, p_password: body.password, p_encryption_key: key });
       if (error) throw error;
       return json({ ok: true });
     }
     if (body.action === "reveal") {
-      const { data, error } = await admin.rpc("reveal_gpay_password", { p_actor_id: user.id, p_provider_id: body.provider_id, p_encryption_key: key });
+      const { data, error } = body.upi_account_id
+        ? await admin.rpc("reveal_upi_gpay_password", { p_actor_id: user.id, p_upi_account_id: body.upi_account_id, p_encryption_key: key })
+        : await admin.rpc("reveal_gpay_password", { p_actor_id: user.id, p_provider_id: body.provider_id, p_encryption_key: key });
       if (error) throw error;
       return json({ password: data });
     }

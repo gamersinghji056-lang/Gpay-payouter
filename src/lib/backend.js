@@ -135,8 +135,8 @@ async function deleteQR(qr) {
   if (error) throw error;
   await supabase.storage.from('provider-qr').remove([qr.storagePath]);
 }
-async function saveCredential(providerId, password) { return callFunction('credential-reveal', { action: 'set', provider_id: providerId, password }); }
-async function revealCredential(providerId) { const result = await callFunction('credential-reveal', { action: 'reveal', provider_id: providerId }); return result.password; }
+async function saveCredential(providerId, password, upiAccountId) { return callFunction('credential-reveal', { action: 'set', provider_id: providerId, upi_account_id: upiAccountId, password }); }
+async function revealCredential(providerId, upiAccountId) { const result = await callFunction('credential-reveal', { action: 'reveal', provider_id: providerId, upi_account_id: upiAccountId }); return result.password; }
 async function resolveShare(token) {
   const result = await callPublicFunction('share-resolve', { token });
   if (result.state) {
