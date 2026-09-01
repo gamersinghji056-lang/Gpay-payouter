@@ -2,9 +2,15 @@ import { supabase } from './supabase.js';
 
 const configured = Boolean(supabase);
 const functionsUrl = configured ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1` : '';
+const SHARE_TOKEN_KEY = 'settleflow_share_tokens_v1';
+function shareTokens() { try { return JSON.parse(localStorage.getItem(SHARE_TOKEN_KEY) || '{}'); } catch { return {}; } }
+function rememberShareToken(scope, providerId, token) { const current = shareTokens(); if (scope === 'user') current.users = { ...(current.users || {}), [providerId]: token }; else current[scope] = token; localStorage.setItem(SHARE_TOKEN_KEY, JSON.stringify(current)); }
 
 function stateFromRows(fallback, settings, providers, entries, deposits, qrs) {
   const next = { settings: { ...fallback.settings }, users: [], entries: [], deposits: [], audit: [] };
+  const tokens = shareTokens();
+  next.settings.merchantToken = tokens.merchant || '';
+  next.settings.agentToken = tokens.agent || '';
   if (settings) Object.assign(next.settings, {
     settlementRate: Number(settings.settlement_rate), depositBaseRate: Number(settings.deposit_base_rate),
     depositMarkupPct: Number(settings.deposit_markup_pct), commissionRate: Number(settings.commission_rate_pct),
@@ -16,7 +22,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs) {
     next.users.push({ id: row.user_code, name: row.name, telegram: row.telegram_username || '', upi: row.upi_id || '',
       mobile: row.mobile || '', apk: row.apk_mobile || '', gpayLogin: row.gpay_login_id || '', qrs: [],
       fundingMode: row.funding_model, limit: Number(row.commission_limit_inr || 0), depositAddress: row.unique_deposit_address || '',
-      token: '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id });
+      token: tokens.users?.[row.id] || '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id });
   }
   next.entries = (entries || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id, type: row.entry_type,
     amount: row.amount_inr == null ? undefined : Number(row.amount_inr), usdt: row.amount_usdt == null ? undefined : Number(row.amount_usdt),
@@ -135,5 +141,5 @@ async function resolveShare(token) {
 }
 
 async function shareAction(token, body) { return callPublicFunction('share-action', { token, ...body }); }
-export const backend = { configured, loadState, upsertProvider, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction };
+export const backend = { configured, loadState, upsertProvider, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction, rememberShareToken };
 if (typeof window !== 'undefined') window.SettleFlow = { ...(window.SettleFlow || {}), backend };
