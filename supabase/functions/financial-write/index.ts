@@ -8,6 +8,19 @@ Deno.serve(async (req) => {
     const { data: provider } = await admin.from("providers").select("status,is_active,pause_reason").eq("id", body.provider_id).maybeSingle();
     if (!provider || !provider.is_active || provider.status === "deleted") return json({ error: "provider is unavailable" }, 409);
     if (provider.status === "paused") return json({ error: `Provider is paused: ${provider.pause_reason || "temporarily unavailable"}` }, 409);
+    if (body.action === "update" || body.action === "release") {
+      if (!body.entry_id || typeof body.entry_id !== "string") return json({ error: "entry_id required" }, 400);
+      const changes = body.action === "release" ? { status: "released", updated_at: new Date().toISOString() } : {
+        entry_type: body.entry_type, amount_inr: body.amount_inr ?? null, amount_usdt: body.amount_usdt ?? null,
+        rate: body.rate ?? null, bank_name: body.bank_name ?? null, account_number: body.account_number ?? null,
+        transaction_date: body.transaction_date, note: body.note ?? null, status: body.status ?? "posted", updated_at: new Date().toISOString(),
+      };
+      const { data, error } = await admin.from("ledger_entries").update(changes).eq("id", body.entry_id).eq("provider_id", body.provider_id).select().single();
+      if (error) throw error;
+      const { error: auditError } = await admin.from("audit_logs").insert({ actor_id: user.id, action: body.action === "release" ? "frozen_released" : "ledger_corrected", entity_type: "ledger_entry", entity_id: body.entry_id, new_data: changes });
+      if (auditError) throw auditError;
+      return json({ data });
+    }
     const { data, error } = await admin.rpc("post_ledger_entry", {
       p_actor_id: user.id, p_provider_id: body.provider_id, p_entry_type: body.entry_type,
       p_amount_inr: body.amount_inr ?? null, p_amount_usdt: body.amount_usdt ?? null,

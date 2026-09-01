@@ -71,28 +71,32 @@ async function callPublicFunction(name, body) {
   return result;
 }
 
-async function persistState(state) {
-  if (!configured) return;
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
-  for (const provider of state.users) {
-    await callFunction('provider-write', { action: 'upsert', user_code: provider.id, name: provider.name, telegram_username: provider.telegram,
-      upi_id: provider.upi, mobile: provider.mobile, apk_mobile: provider.apk, gpay_login_id: provider.gpayLogin,
-      funding_model: provider.fundingMode, commission_limit_inr: provider.limit, unique_deposit_address: provider.depositAddress, is_active: provider.active });
-  }
-  await callFunction('settings-write', { settlement_rate: state.settings.settlementRate, deposit_base_rate: state.settings.depositBaseRate,
-    deposit_markup_pct: state.settings.depositMarkupPct, commission_rate_pct: state.settings.commissionRate,
-    admin_trc20_address: state.settings.adminTrc20Address, trc20_usdt_contract: state.settings.usdtContract });
-  for (const entry of state.entries) {
-    const provider = state.users.find(user => user.id === entry.userId);
-    if (provider) await postLedger(entry, provider.remoteId || provider.id);
-  }
+async function upsertProvider(provider) {
+  return callFunction('provider-write', { action: 'upsert', user_code: provider.id, name: provider.name, telegram_username: provider.telegram,
+    upi_id: provider.upi, mobile: provider.mobile, apk_mobile: provider.apk, gpay_login_id: provider.gpayLogin,
+    funding_model: provider.fundingMode, commission_limit_inr: provider.limit, unique_deposit_address: provider.depositAddress, is_active: provider.active });
+}
+
+async function writeSettings(settings) {
+  return callFunction('settings-write', { settlement_rate: settings.settlementRate, deposit_base_rate: settings.depositBaseRate,
+    deposit_markup_pct: settings.depositMarkupPct, commission_rate_pct: settings.commissionRate,
+    admin_trc20_address: settings.adminTrc20Address, trc20_usdt_contract: settings.usdtContract });
 }
 
 async function postLedger(entry, providerId) {
   return callFunction('financial-write', { provider_id: providerId, entry_type: entry.type, amount_inr: entry.amount,
     amount_usdt: entry.usdt, rate: entry.rate, bank_name: entry.bank, account_number: entry.account, transaction_date: entry.date,
     note: entry.note, status: entry.status, idempotency_key: entry.idempotencyKey || entry.id });
+}
+
+async function updateLedger(entry, providerId) {
+  return callFunction('financial-write', { action: 'update', entry_id: entry.id, provider_id: providerId, entry_type: entry.type,
+    amount_inr: entry.amount, amount_usdt: entry.usdt, rate: entry.rate, bank_name: entry.bank, account_number: entry.account,
+    transaction_date: entry.date, note: entry.note, status: entry.status });
+}
+
+async function releaseLedger(entryId, providerId) {
+  return callFunction('financial-write', { action: 'release', entry_id: entryId, provider_id: providerId });
 }
 
 function subscribe(onChange) {
@@ -131,5 +135,5 @@ async function resolveShare(token) {
 }
 
 async function shareAction(token, body) { return callPublicFunction('share-action', { token, ...body }); }
-export const backend = { configured, loadState, persistState, postLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction };
+export const backend = { configured, loadState, upsertProvider, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction };
 if (typeof window !== 'undefined') window.SettleFlow = { ...(window.SettleFlow || {}), backend };
