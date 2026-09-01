@@ -12,6 +12,8 @@ const multiUpi = readFileSync("supabase/migrations/20260901170000_multi_upi_acco
 const multiUpiOps = readFileSync("supabase/migrations/20260901180000_multi_upi_operations.sql", "utf8");
 const chargesMigration = readFileSync("supabase/migrations/20260901200000_merchant_charges.sql", "utf8");
 const allMigrations = migration + "\n" + readFileSync("supabase/migrations/20260901100200_share_link_semantics.sql", "utf8");
+const finalUi = app.slice(app.lastIndexOf("function depositCreditRows"));
+const latestPublicUserUi = app.slice(app.lastIndexOf("async function savePublicCredential"));
 
 function test(name, fn) {
   try {
@@ -266,4 +268,52 @@ test("mutation refresh keeps active public page", () => {
   assert.match(app, /window\.__publicPage=key/);
   assert.match(app, /publicUserPage\(window\.__publicPage\)/);
   assert.match(app, /window\.SF\.publicMerchantPage\(window\.__publicPage\|\|"dashboard"\)/);
+});
+
+test("admin user detail renders commission and deposit summaries separately", () => {
+  assert.match(app, /function adminUserDetailSummary/);
+  assert.match(app, /Commission Available/);
+  assert.match(app, /Deposit Credit INR/);
+  assert.match(app, /if\(u\.fundingMode==="deposit"\)return/);
+});
+
+test("admin user detail exposes user operations without merchant settlement action", () => {
+  assert.match(app, /<h3>Operations<\/h3>/);
+  assert.match(app, /\+ Collection/);
+  assert.match(app, /\+ INR Withdrawal Received/);
+  assert.match(app, /\+ USDT From User/);
+  assert.match(app, /\+ Frozen/);
+});
+
+test("account QR modal shows legacy QR on primary account and child QR separately", () => {
+  assert.match(app, /legacyForPrimary/);
+  assert.match(app, /Legacy \/ Primary/);
+  assert.match(app, /Child Account/);
+  assert.match(app, /Upload \/ Replace Child QR/);
+});
+
+test("deposit funds has deposit request action and no operational QR block", () => {
+  assert.match(latestPublicUserUi, /Deposit USDT/);
+  assert.match(latestPublicUserUi, /Create Deposit Request/);
+  assert.match(latestPublicUserUi, /depositCreditRows\(u\)/);
+  assert.doesNotMatch(latestPublicUserUi, /Primary \/ Legacy QR<\/div><img/);
+});
+
+test("manual user usdt ledger credits are displayed in deposit history", () => {
+  assert.match(app, /function depositCreditRows/);
+  assert.match(app, /e\.type==="user_usdt"/);
+  assert.match(app, /Ledger credit/);
+});
+
+test("GPay details modal shows account context for merchant, user, and admin", () => {
+  assert.match(app, /UPI Label/);
+  assert.match(app, /GPay Login ID/);
+  assert.match(app, /Reveal Password/);
+  assert.match(app, /Edit UPI Details/);
+});
+
+test("admin user detail operations reopen the same detail after mutation refresh", () => {
+  assert.match(app, /window\.__adminOpenUserId=uid/);
+  assert.match(app, /previousTargetedLedger/);
+  assert.match(app, /userPage\(window\.__adminOpenUserId\)/);
 });
