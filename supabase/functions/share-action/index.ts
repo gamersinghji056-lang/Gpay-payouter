@@ -34,5 +34,5 @@ Deno.serve(async (req) => {
     else return publicJson({ error: "action is not permitted for this share" }, 403);
     if (error) throw error;
     return publicJson({ data });
-  } catch (error) { return publicJson({ error: error instanceof Error ? error.message : "request failed" }, 400); }
+  } catch (error) { const message = error && typeof error === "object" && "message" in error ? String((error as { message?: unknown }).message) : error instanceof Error ? error.message : "request failed"; return publicJson({ error: message }, 400); }
 });

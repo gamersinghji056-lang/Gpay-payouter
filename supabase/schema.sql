@@ -12,3 +12,5 @@
 -- 202609010007_provider_status_pause.sql
 -- 202609010008_fix_paused_provider_active_flag.sql
 -- 202609010009_merchant_commission.sql
+-- 20260901083933_fix_share_token_generation.sql
+-- 20260901091328_enforce_deposit_provider_and_errors.sql

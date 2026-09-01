@@ -29,7 +29,8 @@ Deno.serve(async (req) => {
     ]);
     if (ledger.error || deposits.error || qrs.error) throw ledger.error || deposits.error || qrs.error;
     const privateView = link.scope === "user";
-    const state = { settings: privateView ? { settlementRate: 107, depositBaseRate: 107, depositMarkupPct: 3, commissionRate: 3.5, adminTrc20Address: "", usdtContract: "" } : { settlementRate: 0, depositBaseRate: 0, depositMarkupPct: 0, commissionRate: 0, adminTrc20Address: "", usdtContract: "" }, users: [], entries: [], deposits: [], audit: [] } as any;
+    const { data: appSettings } = privateView ? await admin.from("app_settings").select("settlement_rate,deposit_base_rate,deposit_markup_pct,commission_rate_pct,admin_trc20_address").eq("id", true).maybeSingle() : { data: null };
+    const state = { settings: privateView ? { settlementRate: Number(appSettings?.settlement_rate || 107), depositBaseRate: Number(appSettings?.deposit_base_rate || 107), depositMarkupPct: Number(appSettings?.deposit_markup_pct ?? 3), commissionRate: Number(appSettings?.commission_rate_pct || 3.5), adminTrc20Address: appSettings?.admin_trc20_address || "", usdtContract: "" } : { settlementRate: 0, depositBaseRate: 0, depositMarkupPct: 0, commissionRate: 0, adminTrc20Address: "", usdtContract: "" }, users: [], entries: [], deposits: [], audit: [] } as any;
     for (const provider of providers || []) {
       const { data: account } = await admin.rpc("accounting_for_provider", { p_provider_id: provider.id });
       const accounting = account?.[0] || {};
