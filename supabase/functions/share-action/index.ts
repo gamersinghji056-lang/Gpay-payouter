@@ -14,6 +14,18 @@ Deno.serve(async (req) => {
     const admin = adminClient();
     const { data: link } = await admin.from("share_links").select("id,scope,provider_id,created_by,is_active,expires_at").or(`public_token.eq.${token},token_hash.eq.${tokenHash}`).maybeSingle();
     if (!link || !link.is_active || (link.expires_at && new Date(link.expires_at) <= new Date())) return publicJson({ error: "share link is invalid or revoked" }, 401);
+    if (body.action === "withdrawal_request") {
+      if (!["user", "merchant"].includes(link.scope)) return publicJson({ error: "action is not permitted for this share" }, 403);
+      if (link.scope === "user") {
+        const { data: provider } = await admin.from("providers").select("status,is_active,pause_reason").eq("id", link.provider_id).maybeSingle();
+        if (!provider || !provider.is_active || !["active", "paused"].includes(provider.status)) return publicJson({ error: "provider is unavailable" }, 409);
+        if (provider.status === "paused") return publicJson({ error: `Provider is paused: ${provider.pause_reason || "temporarily unavailable"}` }, 409);
+      }
+      const requesterType = link.scope === "user" ? "provider" : "merchant";
+      const { data, error } = await admin.rpc("request_usdt_withdrawal", { p_share_link_id: link.id, p_provider_id: link.scope === "user" ? link.provider_id : null, p_requester_type: requesterType, p_amount_usdt: body.amount_usdt, p_destination_address: body.destination_address });
+      if (error) throw error;
+      return publicJson({ data });
+    }
     const providerId = link.scope === "user" ? link.provider_id : body.provider_id;
     if (!providerId) return publicJson({ error: "provider is required" }, 400);
     if (link.scope === "merchant" && body.provider_id !== link.provider_id && link.provider_id !== null) return publicJson({ error: "provider is not permitted for this share" }, 403);
@@ -23,12 +35,6 @@ Deno.serve(async (req) => {
     if (body.action === "collection_update" && link.scope === "merchant") {
       if (!body.entry_id || body.provider_id !== providerId) return publicJson({ error: "collection entry is required" }, 400);
       const { data, error } = await admin.rpc("correct_collection_by_share", { p_share_link_id: link.id, p_entry_id: body.entry_id, p_amount_inr: body.amount_inr, p_note: body.note ?? null });
-      if (error) throw error;
-      return publicJson({ data });
-    }
-    if (body.action === "withdrawal_request") {
-      const requesterType = link.scope === "user" ? "provider" : link.scope === "merchant" ? "merchant" : "";
-      const { data, error } = await admin.rpc("request_usdt_withdrawal", { p_share_link_id: link.id, p_provider_id: link.scope === "user" ? link.provider_id : null, p_requester_type: requesterType, p_amount_usdt: body.amount_usdt, p_destination_address: body.destination_address });
       if (error) throw error;
       return publicJson({ data });
     }

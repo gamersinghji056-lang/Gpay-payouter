@@ -2,6 +2,9 @@ import { adminClient, json, requireStaff } from "../_shared/auth.ts";
 
 const corsHeaders = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, x-client-info, apikey, content-type", "access-control-allow-methods": "POST, OPTIONS" };
 function corsJson(body: unknown, status = 200) { const response = json(body, status); Object.entries(corsHeaders).forEach(([key, value]) => response.headers.set(key, value)); return response; }
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String((error as { message?: unknown }).message) : "request failed";
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return corsJson({ ok: true });
@@ -30,5 +33,5 @@ Deno.serve(async (req) => {
       return corsJson({ ok: true });
     }
     return corsJson({ error: "invalid action" }, 400);
-  } catch (error) { return corsJson({ error: error instanceof Error ? error.message : "request failed" }, 400); }
+  } catch (error) { return corsJson({ error: errorMessage(error) }, 400); }
 });

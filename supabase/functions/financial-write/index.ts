@@ -1,5 +1,9 @@
 import { adminClient, json, requireStaff } from "../_shared/auth.ts";
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String((error as { message?: unknown }).message) : "request failed";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
@@ -56,5 +60,5 @@ Deno.serve(async (req) => {
       resultData = updated;
     }
     return json({ data: resultData });
-  } catch (error) { return json({ error: error instanceof Error ? error.message : "request failed" }, 400); }
+  } catch (error) { return json({ error: errorMessage(error) }, 400); }
 });

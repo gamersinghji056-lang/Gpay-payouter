@@ -1,5 +1,9 @@
 import { adminClient, json, requireStaff } from "../_shared/auth.ts";
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String((error as { message?: unknown }).message) : "request failed";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
@@ -42,5 +46,5 @@ Deno.serve(async (req) => {
     if (Number(persisted.commission_limit_inr || 0) !== changes.commission_limit_inr || persisted.funding_model !== changes.funding_model || persisted.name !== changes.name) throw new Error("provider update was not persisted");
     await admin.from("audit_logs").insert({ actor_id: user.id, action: "provider_upserted", entity_type: "provider", entity_id: persisted.id, new_data: body });
     return json({ data: persisted });
-  } catch (error) { return json({ error: error instanceof Error ? error.message : "request failed" }, 400); }
+  } catch (error) { return json({ error: errorMessage(error) }, 400); }
 });

@@ -2,6 +2,9 @@ import { adminClient, json } from "../_shared/auth.ts";
 
 const corsHeaders = { "access-control-allow-origin": "*", "access-control-allow-headers": "authorization, x-client-info, apikey, content-type", "access-control-allow-methods": "POST, OPTIONS" };
 function publicJson(body: unknown, status = 200) { const response = json(body, status); corsHeaders && Object.entries(corsHeaders).forEach(([key, value]) => response.headers.set(key, value)); return response; }
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String((error as { message?: unknown }).message) : "request failed";
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return publicJson({ ok: true });
@@ -50,5 +53,5 @@ Deno.serve(async (req) => {
     if (link.scope === "merchant") { for (const row of merchantSettlements.data || []) { merchantSummary.settledUsdt += Number(row.amount_usdt || 0); merchantSummary.settledInr += Number(row.amount_inr || 0); merchantSummary.commissionEarnedInr += Number(row.commission_inr || 0); } const reserved = (withdrawals.data || []).reduce((sum, row) => sum + Number(row.amount_inr || 0), 0); merchantSummary.availableInr = Math.max(0, merchantSummary.totalCollectionInr - merchantSummary.frozenInr - merchantSummary.settledInr - reserved); merchantSummary.availableUsdt = merchantSummary.availableInr / merchantSummary.settlementRate; }
     if (privateView) for (const row of deposits.data || []) state.deposits.push({ id: row.id, userId: (providers || []).find(provider => provider.id === row.provider_id)?.user_code, requestedUsdt: row.requested_usdt, expectedUsdt: row.expected_usdt, rate: row.rate, inrValue: row.inr_value, address: row.destination_address, status: row.status, txHash: row.tx_hash, createdAt: row.created_at, confirmedAt: row.confirmed_at, source: row.source });
     return publicJson({ scope: link.scope, state });
-  } catch (error) { return publicJson({ error: error instanceof Error ? error.message : "request failed" }, 400); }
+  } catch (error) { return publicJson({ error: errorMessage(error) }, 400); }
 });
