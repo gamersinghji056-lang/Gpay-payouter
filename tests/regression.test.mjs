@@ -200,3 +200,9 @@ test("merchant charges are immutable, idempotent, and balance-authoritative", ()
   assert.match(financialWrite, /merchant_charge/);
   assert.match(shareResolve, /merchant_charges/);
 });
+
+test("incomplete share URLs are guarded in the rendered UI", () => {
+  assert.match(app, /sanitizeShareLinks/);
+  assert.match(app, /Regeneration required/);
+  assert.match(app, /button\.disabled=true/);
+});
