@@ -19,7 +19,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
       mobile: row.mobile || '', apk: row.apk_mobile || '', gpayLogin: row.gpay_login_id || '', qrs: [],
       fundingMode: row.funding_model, limit: Number(row.commission_limit_inr || 0), depositAddress: row.unique_deposit_address || '',
       token: (shareLinks || []).find(link => link.scope === 'user' && link.provider_id === row.id && link.public_token && link.is_active)?.public_token || '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id,
-      upiAccounts: (upiAccounts || []).filter(account => account.provider_id === row.id).map(account => ({ id: account.id, label: account.label, upi: account.upi_id || '', mobile: account.mobile || '', apk: account.apk_mobile || '', gpayLogin: account.gpay_login_id || '', qrData: account.qr_data || '', status: account.status, merchantOperational: account.merchant_operational, configuredLimit: Number(account.configured_limit_inr || 0), allocatedLimit: Number(account.allocated_limit_inr || 0) })) });
+      upiAccounts: (upiAccounts || []).filter(account => account.provider_id === row.id).map(account => ({ id: account.id, label: account.label, upi: account.upi_id || '', mobile: account.mobile || '', apk: account.apk_mobile || '', gpayLogin: account.gpay_login_id || '', qrData: account.qr_data || '', qrs: [], status: account.status, merchantOperational: account.merchant_operational, configuredLimit: Number(account.configured_limit_inr || 0), allocatedLimit: Number(account.allocated_limit_inr || 0) })) });
   }
   next.entries = (entries || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id, accountId: row.upi_account_id || '', type: row.entry_type, creditRate: row.credit_rate,
     amount: row.amount_inr == null ? undefined : Number(row.amount_inr), usdt: row.amount_usdt == null ? undefined : Number(row.amount_usdt),
@@ -32,7 +32,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
   next.withdrawals = (withdrawals || []).map(row => ({ id: row.id, requesterType: row.requester_type, userId: ids.get(row.provider_id) || row.provider_id,
     amountUsdt: Number(row.amount_usdt), rate: Number(row.rate), amountInr: Number(row.amount_inr), address: row.destination_address,
     status: row.status, proofTxHash: row.proof_tx_hash || '', proofUrl: row.proof_url || '', proofNote: row.proof_note || '', createdAt: row.created_at, paidAt: row.paid_at || '' }));
-  for (const row of qrs || []) { const user = next.users.find(u => u.remoteId === row.provider_id); if (user) user.qrs.push({ id: row.id, name: row.display_name || 'QR', storagePath: row.storage_path }); }
+  for (const row of qrs || []) { const user = next.users.find(u => u.remoteId === row.provider_id); if (user) { const qr = { id: row.id, name: row.display_name || 'QR', storagePath: row.storage_path }; const account = user.upiAccounts.find(item => item.id === row.upi_account_id); if (account) account.qrs.push(qr); else user.qrs.push(qr); } }
   return next;
 }
 
@@ -54,13 +54,15 @@ async function loadState(fallback) {
   if (error) throw error;
   for (const link of shareLinks.data || []) if (!link.public_token) { const repaired = await callFunction('share-link', { action: 'get', scope: link.scope, provider_id: link.provider_id }); if (repaired.data?.public_token) link.public_token = repaired.data.public_token; }
   const state = stateFromRows(fallback, settings.data, providers.data, entries.data, deposits.data, qrs.data, withdrawals.data, merchantSettlements.data, shareLinks.data, upiAccounts.data, charges.data);
+  const { data: merchantAvailable } = await supabase.rpc('merchant_available_balance_inr');
+  state.merchantSettlement = { ...(state.merchantSettlement || {}), availableInr: Number(merchantAvailable || 0), availableUsdt: Number(merchantAvailable || 0) / Number(state.settings.settlementRate || 107) };
   await Promise.all(state.users.flatMap(user => user.upiAccounts.map(async account => { const { data } = await supabase.rpc('accounting_for_upi', { p_upi_account_id: account.id }); const value = data?.[0]; if (value) { account.accounting = value; account.collection = Number(value.total_collection_inr || 0); account.availableLimit = Number(value.available_limit_inr || 0); } })));
   const accounting = await Promise.all((providers.data || []).map(row => supabase.rpc('accounting_for_provider', { p_provider_id: row.id })));
   accounting.forEach((result, index) => { if (!result.error && result.data?.[0]) {
     const user = state.users.find(item => item.remoteId === providers.data[index].id);
     if (user) user.accounting = result.data[0];
   }});
-  await Promise.all(state.users.flatMap(user => user.qrs.map(async qr => {
+  await Promise.all(state.users.flatMap(user => [...user.qrs, ...user.upiAccounts.flatMap(account => account.qrs || [])].map(async qr => {
     const { data } = await supabase.storage.from('provider-qr').createSignedUrl(qr.storagePath, 300);
     qr.data = data?.signedUrl || '';
   })));
@@ -126,11 +128,11 @@ async function login(email, password) { if (!configured) return false; const { e
 async function logout() { if (configured) await supabase.auth.signOut(); }
 async function authenticated() { if (!configured) return false; const { data: { user } } = await supabase.auth.getUser(); if (!user) return false; const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(); return profile?.role || ''; }
 async function updateProviderStatus(providerId, action, pauseReason) { return callFunction('provider-write', { action, provider_id: providerId, pause_reason: pauseReason }); }
-async function uploadQR(providerId, file, displayName) {
+async function uploadQR(providerId, file, displayName, upiAccountId) {
   const path = `${providerId}/${crypto.randomUUID()}-${displayName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
   const { error: uploadError } = await supabase.storage.from('provider-qr').upload(path, file, { contentType: file.type, upsert: false });
   if (uploadError) throw uploadError;
-  const { error } = await supabase.from('provider_qr_codes').insert({ provider_id: providerId, storage_path: path, display_name: displayName });
+  const { error } = await supabase.from('provider_qr_codes').insert({ provider_id: providerId, upi_account_id: upiAccountId || null, storage_path: path, display_name: displayName });
   if (error) { await supabase.storage.from('provider-qr').remove([path]); throw error; }
 }
 async function deleteQR(qr) {
