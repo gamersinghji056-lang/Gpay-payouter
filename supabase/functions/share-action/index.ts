@@ -10,6 +10,12 @@ Deno.serve(async (req) => {
     const admin = adminClient();
     const { data: link } = await admin.from("share_links").select("id,scope,provider_id,is_active,expires_at").eq("token_hash", tokenHash).maybeSingle();
     if (!link || !link.is_active || (link.expires_at && new Date(link.expires_at) <= new Date())) return json({ error: "share link is invalid or revoked" }, 401);
+    const providerId = link.scope === "user" ? link.provider_id : body.provider_id;
+    if (!providerId) return json({ error: "provider is required" }, 400);
+    if (link.scope === "merchant" && body.provider_id !== link.provider_id && link.provider_id !== null) return json({ error: "provider is not permitted for this share" }, 403);
+    const { data: provider } = await admin.from("providers").select("status,is_active,pause_reason").eq("id", providerId).maybeSingle();
+    if (!provider || !provider.is_active || provider.status === "deleted") return json({ error: "provider is unavailable" }, 409);
+    if (provider.status === "paused") return json({ error: `Provider is paused: ${provider.pause_reason || "temporarily unavailable"}` }, 409);
     let data; let error;
     if (body.action === "deposit" && link.scope === "user") ({ data, error } = await admin.rpc("create_deposit_by_share", { p_share_link_id: link.id, p_provider_id: link.provider_id, p_requested_usdt: body.amount_usdt }));
     else if (body.action === "collection" && link.scope === "merchant") ({ data, error } = await admin.rpc("post_collection_by_share", { p_share_link_id: link.id, p_provider_id: body.provider_id, p_amount_inr: body.amount_inr, p_bank_name: body.bank_name, p_account_number: body.account_number, p_transaction_date: body.transaction_date, p_note: body.note, p_idempotency_key: body.idempotency_key }));

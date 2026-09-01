@@ -16,7 +16,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs) {
     next.users.push({ id: row.user_code, name: row.name, telegram: row.telegram_username || '', upi: row.upi_id || '',
       mobile: row.mobile || '', apk: row.apk_mobile || '', gpayLogin: row.gpay_login_id || '', qrs: [],
       fundingMode: row.funding_model, limit: Number(row.commission_limit_inr || 0), depositAddress: row.unique_deposit_address || '',
-      token: '', active: row.is_active, remoteId: row.id });
+      token: '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id });
   }
   next.entries = (entries || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id, type: row.entry_type,
     amount: row.amount_inr == null ? undefined : Number(row.amount_inr), usdt: row.amount_usdt == null ? undefined : Number(row.amount_usdt),
@@ -34,7 +34,7 @@ async function loadState(fallback) {
   if (!configured) return fallback;
   const [settings, providers, entries, deposits, qrs] = await Promise.all([
     supabase.from('app_settings').select('*').eq('id', true).maybeSingle(),
-    supabase.from('providers').select('id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active'),
+    supabase.from('providers').select('id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active,status,pause_reason'),
     supabase.from('ledger_entries').select('*').order('transaction_date', { ascending: false }),
     supabase.from('deposit_requests').select('*').order('created_at', { ascending: false }),
     supabase.from('provider_qr_codes').select('*'),
@@ -60,6 +60,14 @@ async function callFunction(name, body) {
   const response = await fetch(`${functionsUrl}/${name}`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || 'backend request failed');
+  return result;
+}
+
+async function callPublicFunction(name, body) {
+  if (!configured) throw new Error('Supabase is not configured');
+  const response = await fetch(`${functionsUrl}/${name}`, { method: 'POST', headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const result = await response.json();
+  if (!response.ok) throw new Error(result.error || 'public share request failed');
   return result;
 }
 
@@ -98,7 +106,7 @@ function subscribe(onChange) {
 async function login(email, password) { if (!configured) return false; const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) throw error; return true; }
 async function logout() { if (configured) await supabase.auth.signOut(); }
 async function authenticated() { if (!configured) return false; const { data: { user } } = await supabase.auth.getUser(); if (!user) return false; const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(); return profile?.role || ''; }
-async function archiveProvider(providerId, restore = false) { return callFunction('provider-write', { action: restore ? 'restore' : 'archive', provider_id: providerId }); }
+async function updateProviderStatus(providerId, action, pauseReason) { return callFunction('provider-write', { action, provider_id: providerId, pause_reason: pauseReason }); }
 async function uploadQR(providerId, file, displayName) {
   const path = `${providerId}/${crypto.randomUUID()}-${displayName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
   const { error: uploadError } = await supabase.storage.from('provider-qr').upload(path, file, { contentType: file.type, upsert: false });
@@ -114,7 +122,7 @@ async function deleteQR(qr) {
 async function saveCredential(providerId, password) { return callFunction('credential-reveal', { action: 'set', provider_id: providerId, password }); }
 async function revealCredential(providerId) { const result = await callFunction('credential-reveal', { action: 'reveal', provider_id: providerId }); return result.password; }
 async function resolveShare(token) {
-  const result = await callFunction('share-resolve', { token });
+  const result = await callPublicFunction('share-resolve', { token });
   if (result.state) {
     if (result.scope === 'merchant') result.state.settings.merchantToken = token;
     if (result.scope === 'agent') result.state.settings.agentToken = token;
@@ -122,5 +130,6 @@ async function resolveShare(token) {
   return result;
 }
 
-export const backend = { configured, loadState, persistState, postLedger, callFunction, subscribe, login, logout, authenticated, archiveProvider, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare };
+async function shareAction(token, body) { return callPublicFunction('share-action', { token, ...body }); }
+export const backend = { configured, loadState, persistState, postLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, resolveShare, shareAction };
 if (typeof window !== 'undefined') window.SettleFlow = { ...(window.SettleFlow || {}), backend };

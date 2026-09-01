@@ -1,0 +1,10 @@
+alter table public.providers add column if not exists status text;
+update public.providers set status = case when is_active then 'active' else 'deleted' end where status is null;
+alter table public.providers alter column status set default 'active';
+alter table public.providers alter column status set not null;
+alter table public.providers drop constraint if exists providers_status_check;
+alter table public.providers add constraint providers_status_check check (status in ('active','paused','deleted'));
+alter table public.providers add column if not exists pause_reason text;
+alter table public.providers add column if not exists paused_at timestamptz;
+alter table public.providers add column if not exists paused_by uuid references public.profiles(id);
+create index if not exists providers_status_idx on public.providers (status);

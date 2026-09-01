@@ -5,15 +5,19 @@ Deno.serve(async (req) => {
   try {
     const { admin, user, role } = await requireStaff(req);
     const body = await req.json();
-    if (body.action === "archive" || body.action === "restore") {
+    if (["pause", "resume", "delete", "restore"].includes(body.action)) {
       if (role !== "admin") return json({ error: "admin authorization required" }, 403);
       if (!body.provider_id || typeof body.provider_id !== "string") return json({ error: "provider_id required" }, 400);
-      const { data: provider, error: readError } = await admin.from("providers").select("id,is_active").eq("id", body.provider_id).single();
+      const { data: provider, error: readError } = await admin.from("providers").select("id,is_active,status,pause_reason").eq("id", body.provider_id).single();
       if (readError || !provider) return json({ error: "provider not found" }, 404);
-      const nextActive = body.action === "restore";
-      const { data, error } = await admin.from("providers").update({ is_active: nextActive, updated_at: new Date().toISOString() }).eq("id", provider.id).select().single();
+      const nextStatus = body.action === "pause" ? "paused" : body.action === "delete" ? "deleted" : "active";
+      if (body.action === "pause" && (!body.pause_reason || typeof body.pause_reason !== "string" || !body.pause_reason.trim())) return json({ error: "pause reason required" }, 400);
+      const nextActive = nextStatus === "active";
+      const changes = { status: nextStatus, is_active: nextActive, pause_reason: nextStatus === "paused" ? body.pause_reason.trim() : null, paused_at: nextStatus === "paused" ? new Date().toISOString() : null, paused_by: nextStatus === "paused" ? user.id : null, updated_at: new Date().toISOString() };
+      const { data, error } = await admin.from("providers").update(changes).eq("id", provider.id).select().single();
       if (error) throw error;
-      const { error: auditError } = await admin.from("audit_logs").insert({ actor_id: user.id, action: nextActive ? "provider_restored" : "provider_archived", entity_type: "provider", entity_id: provider.id, old_data: { is_active: provider.is_active }, new_data: { is_active: nextActive } });
+      const action = body.action === "pause" ? "provider_paused" : body.action === "delete" ? "provider_deleted" : "provider_resumed";
+      const { error: auditError } = await admin.from("audit_logs").insert({ actor_id: user.id, action, entity_type: "provider", entity_id: provider.id, old_data: { status: provider.status, is_active: provider.is_active, pause_reason: provider.pause_reason }, new_data: { status: nextStatus, is_active: nextActive, pause_reason: changes.pause_reason } });
       if (auditError) throw auditError;
       return json({ data });
     }

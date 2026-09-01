@@ -12,22 +12,33 @@ Deno.serve(async (req) => {
     const { data: link, error: linkError } = await admin.from("share_links").select("id,scope,provider_id,is_active,expires_at").eq("token_hash", tokenHash).maybeSingle();
     if (linkError || !link || !link.is_active || (link.expires_at && new Date(link.expires_at) <= new Date())) return json({ error: "share link is invalid or revoked" }, 401);
     await admin.from("share_links").update({ last_accessed_at: new Date().toISOString() }).eq("id", link.id);
-    let query = admin.from("providers").select("id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active").eq("is_active", true);
+    let query = admin.from("providers").select("id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active,status,pause_reason").in("status", ["active", "paused"]).eq("is_active", true);
     if (link.scope === "user") query = query.eq("id", link.provider_id);
     const { data: providers, error } = await query;
     if (error) throw error;
+    if (link.scope === "user" && (!providers || providers.length !== 1)) return json({ error: "user share link is unavailable" }, 404);
+    const ids = (providers || []).map(provider => provider.id);
+    const [ledger, deposits, qrs] = await Promise.all([
+      ids.length ? admin.from("ledger_entries").select("*").in("provider_id", ids) : Promise.resolve({ data: [], error: null }),
+      ids.length ? admin.from("deposit_requests").select("*").in("provider_id", ids) : Promise.resolve({ data: [], error: null }),
+      ids.length ? admin.from("provider_qr_codes").select("*").in("provider_id", ids) : Promise.resolve({ data: [], error: null }),
+    ]);
+    if (ledger.error || deposits.error || qrs.error) throw ledger.error || deposits.error || qrs.error;
     const state = { settings: { settlementRate: 107, depositBaseRate: 107, depositMarkupPct: 3, commissionRate: 3.5, adminTrc20Address: "", usdtContract: "" }, users: [], entries: [], deposits: [], audit: [] } as any;
+    const privateView = link.scope === "user";
     for (const provider of providers || []) {
       const { data: account } = await admin.rpc("accounting_for_provider", { p_provider_id: provider.id });
-      state.users.push({ id: provider.user_code, remoteId: provider.id, name: provider.name, telegram: provider.telegram_username || "", upi: provider.upi_id || "", mobile: provider.mobile || "", apk: provider.apk_mobile || "", gpayLogin: provider.gpay_login_id || "", qrs: [], fundingMode: provider.funding_model, limit: Number(provider.commission_limit_inr || 0), depositAddress: provider.unique_deposit_address || "", token: link.scope === "user" ? token : "", active: provider.is_active });
+      const accounting = account?.[0] || {};
+      const user = { id: provider.user_code, remoteId: provider.id, name: provider.name, telegram: provider.telegram_username || "", upi: provider.upi_id || "", mobile: provider.mobile || "", apk: provider.apk_mobile || "", gpayLogin: provider.gpay_login_id || "", qrs: [], token: privateView ? token : "", active: provider.is_active, status: provider.status, pauseReason: provider.pause_reason || "", accounting: { collection_inr: accounting.collection_inr || 0, collection_capacity_inr: accounting.collection_capacity_inr || 0, frozen_inr: 0, successful_withdrawal_inr: 0, user_usdt_inr: 0, merchant_settled_inr: 0, confirmed_deposit_inr: privateView ? accounting.confirmed_deposit_inr || 0 : 0, commission_earned_inr: 0 } };
+      if (privateView) { user.fundingMode = provider.funding_model; user.limit = Number(provider.commission_limit_inr || 0); user.depositAddress = provider.unique_deposit_address || ""; }
+      for (const qr of (qrs.data || []).filter(row => row.provider_id === provider.id)) {
+        const { data: signed } = await admin.storage.from("provider-qr").createSignedUrl(qr.storage_path, 300);
+        user.qrs.push({ id: qr.id, name: qr.display_name || "QR", storagePath: qr.storage_path, data: signed?.signedUrl || "" });
+      }
+      state.users.push(user);
     }
-    const ids = (providers || []).map(provider => provider.id);
-    const [ledger, deposits] = await Promise.all([
-      admin.from("ledger_entries").select("*").in("provider_id", ids),
-      admin.from("deposit_requests").select("*").in("provider_id", ids),
-    ]);
-    for (const row of ledger.data || []) { if (link.scope === "user" || row.entry_type === "collection") state.entries.push({ id: row.id, userId: (providers || []).find(provider => provider.id === row.provider_id)?.user_code, type: row.entry_type, amount: row.amount_inr, usdt: row.amount_usdt, rate: row.rate, bank: row.bank_name, account: row.account_number, date: row.transaction_date, note: row.note, status: row.status }); }
-    if (link.scope === "user") for (const row of deposits.data || []) state.deposits.push({ id: row.id, userId: (providers || []).find(provider => provider.id === row.provider_id)?.user_code, requestedUsdt: row.requested_usdt, expectedUsdt: row.expected_usdt, rate: row.rate, inrValue: row.inr_value, address: row.destination_address, status: row.status, txHash: row.tx_hash, createdAt: row.created_at, confirmedAt: row.confirmed_at, source: row.source });
+    for (const row of ledger.data || []) if (privateView || row.entry_type === "collection") state.entries.push({ id: row.id, userId: (providers || []).find(provider => provider.id === row.provider_id)?.user_code, type: row.entry_type, amount: row.amount_inr, usdt: row.amount_usdt, rate: row.rate, bank: row.bank_name, account: row.account_number, date: row.transaction_date, note: row.note, status: row.status });
+    if (privateView) for (const row of deposits.data || []) state.deposits.push({ id: row.id, userId: (providers || []).find(provider => provider.id === row.provider_id)?.user_code, requestedUsdt: row.requested_usdt, expectedUsdt: row.expected_usdt, rate: row.rate, inrValue: row.inr_value, address: row.destination_address, status: row.status, txHash: row.tx_hash, createdAt: row.created_at, confirmedAt: row.confirmed_at, source: row.source });
     return json({ scope: link.scope, state });
   } catch (error) { return json({ error: error instanceof Error ? error.message : "request failed" }, 400); }
 });

@@ -5,6 +5,9 @@ Deno.serve(async (req) => {
   try {
     const { admin, user } = await requireStaff(req);
     const body = await req.json();
+    const { data: provider } = await admin.from("providers").select("status,is_active,pause_reason").eq("id", body.provider_id).maybeSingle();
+    if (!provider || !provider.is_active || provider.status === "deleted") return json({ error: "provider is unavailable" }, 409);
+    if (provider.status === "paused") return json({ error: `Provider is paused: ${provider.pause_reason || "temporarily unavailable"}` }, 409);
     const { data, error } = await admin.rpc("post_ledger_entry", {
       p_actor_id: user.id, p_provider_id: body.provider_id, p_entry_type: body.entry_type,
       p_amount_inr: body.amount_inr ?? null, p_amount_usdt: body.amount_usdt ?? null,
