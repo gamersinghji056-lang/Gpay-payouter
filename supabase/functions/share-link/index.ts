@@ -1,6 +1,7 @@
 import { adminClient, json, requireStaff } from "../_shared/auth.ts";
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return json({ ok: true });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   try {
     const { admin, user } = await requireStaff(req);

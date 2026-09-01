@@ -1,6 +1,7 @@
 import { adminClient, json, requireStaff } from "../_shared/auth.ts";
 
 Deno.serve(async (req) => {
+  if (req.method === "OPTIONS") return json({ ok: true });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   try {
     const { admin, user } = await requireStaff(req);
@@ -30,6 +31,15 @@ Deno.serve(async (req) => {
       p_status: body.status ?? "posted", p_idempotency_key: body.idempotency_key ?? null,
     });
     if (error) throw error;
-    return json({ data });
+    let resultData = data;
+    if (body.entry_type === "merchant_usdt") {
+      const commissionRate = Number(body.merchant_commission_rate ?? 4.5);
+      if (!Number.isFinite(commissionRate) || commissionRate < 0 || commissionRate > 100) return json({ error: "invalid merchant commission rate" }, 400);
+      const commissionInr = Math.round(Number(body.amount_usdt || 0) * Number(body.rate || 0) * commissionRate) / 100;
+      const { data: updated, error: commissionError } = await admin.from("ledger_entries").update({ merchant_commission_rate: commissionRate, merchant_commission_inr: commissionInr }).eq("id", data.id).select().single();
+      if (commissionError) throw commissionError;
+      resultData = updated;
+    }
+    return json({ data: resultData });
   } catch (error) { return json({ error: error instanceof Error ? error.message : "request failed" }, 400); }
 });

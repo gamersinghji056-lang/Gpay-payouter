@@ -11,3 +11,4 @@
 -- 202609010006_watcher_confirmation_lock.sql
 -- 202609010007_provider_status_pause.sql
 -- 202609010008_fix_paused_provider_active_flag.sql
+-- 202609010009_merchant_commission.sql

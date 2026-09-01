@@ -20,7 +20,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs) {
   }
   next.entries = (entries || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id, type: row.entry_type,
     amount: row.amount_inr == null ? undefined : Number(row.amount_inr), usdt: row.amount_usdt == null ? undefined : Number(row.amount_usdt),
-    rate: row.rate == null ? undefined : Number(row.rate), bank: row.bank_name || '', account: row.account_number || '', date: row.transaction_date,
+    rate: row.rate == null ? undefined : Number(row.rate), merchantCommissionRate: row.merchant_commission_rate == null ? undefined : Number(row.merchant_commission_rate), merchantCommissionInr: row.merchant_commission_inr == null ? undefined : Number(row.merchant_commission_inr), bank: row.bank_name || '', account: row.account_number || '', date: row.transaction_date,
     note: row.note || '', status: row.status, createdAt: row.created_at, updatedAt: row.updated_at, enteredBy: row.created_by || 'backend',
     idempotencyKey: row.idempotency_key || row.id }));
   next.deposits = (deposits || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id,
@@ -57,8 +57,8 @@ async function loadState(fallback) {
 async function callFunction(name, body) {
   if (!configured) throw new Error('Supabase is not configured');
   const { data: { session } } = await supabase.auth.getSession();
-  const response = await fetch(`${functionsUrl}/${name}`, { method: 'POST', headers: { Authorization: `Bearer ${session?.access_token || ''}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
-  const result = await response.json();
+  const response = await fetch(`${functionsUrl}/${name}`, { method: 'POST', headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY, Authorization: `Bearer ${session?.access_token || ''}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || 'backend request failed');
   return result;
 }
@@ -86,13 +86,13 @@ async function writeSettings(settings) {
 async function postLedger(entry, providerId) {
   return callFunction('financial-write', { provider_id: providerId, entry_type: entry.type, amount_inr: entry.amount,
     amount_usdt: entry.usdt, rate: entry.rate, bank_name: entry.bank, account_number: entry.account, transaction_date: entry.date,
-    note: entry.note, status: entry.status, idempotency_key: entry.idempotencyKey || entry.id });
+    note: entry.note, status: entry.status, idempotency_key: entry.idempotencyKey || entry.id, merchant_commission_rate: entry.merchantCommissionRate });
 }
 
 async function updateLedger(entry, providerId) {
   return callFunction('financial-write', { action: 'update', entry_id: entry.id, provider_id: providerId, entry_type: entry.type,
     amount_inr: entry.amount, amount_usdt: entry.usdt, rate: entry.rate, bank_name: entry.bank, account_number: entry.account,
-    transaction_date: entry.date, note: entry.note, status: entry.status });
+    transaction_date: entry.date, note: entry.note, status: entry.status, merchant_commission_rate: entry.merchantCommissionRate });
 }
 
 async function releaseLedger(entryId, providerId) {
