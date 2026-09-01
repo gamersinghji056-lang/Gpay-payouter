@@ -6,11 +6,12 @@ const SHARE_TOKEN_KEY = 'settleflow_share_tokens_v1';
 function shareTokens() { try { return JSON.parse(localStorage.getItem(SHARE_TOKEN_KEY) || '{}'); } catch { return {}; } }
 function rememberShareToken(scope, providerId, token) { const current = shareTokens(); if (scope === 'user') current.users = { ...(current.users || {}), [providerId]: token }; else current[scope] = token; localStorage.setItem(SHARE_TOKEN_KEY, JSON.stringify(current)); }
 
-function stateFromRows(fallback, settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements) {
+function stateFromRows(fallback, settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks) {
   const next = { settings: { ...fallback.settings }, users: [], entries: [], deposits: [], withdrawals: [], merchantSettlements: merchantSettlements || [], audit: [] };
   const tokens = shareTokens();
   next.settings.merchantToken = tokens.merchant || '';
   next.settings.agentToken = tokens.agent || '';
+  for (const link of shareLinks || []) if (link.public_token && link.is_active && (!link.expires_at || new Date(link.expires_at) > new Date())) { if (link.scope === 'merchant') next.settings.merchantToken = link.public_token; if (link.scope === 'agent') next.settings.agentToken = link.public_token; }
   if (settings) Object.assign(next.settings, {
     settlementRate: Number(settings.settlement_rate), depositBaseRate: Number(settings.deposit_base_rate),
     depositMarkupPct: Number(settings.deposit_markup_pct), commissionRate: Number(settings.commission_rate_pct),
@@ -22,7 +23,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
     next.users.push({ id: row.user_code, name: row.name, telegram: row.telegram_username || '', upi: row.upi_id || '',
       mobile: row.mobile || '', apk: row.apk_mobile || '', gpayLogin: row.gpay_login_id || '', qrs: [],
       fundingMode: row.funding_model, limit: Number(row.commission_limit_inr || 0), depositAddress: row.unique_deposit_address || '',
-      token: tokens.users?.[row.id] || '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id });
+      token: (shareLinks || []).find(link => link.scope === 'user' && link.provider_id === row.id && link.public_token && link.is_active)?.public_token || tokens.users?.[row.id] || '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id });
   }
   next.entries = (entries || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id, type: row.entry_type, creditRate: row.credit_rate,
     amount: row.amount_inr == null ? undefined : Number(row.amount_inr), usdt: row.amount_usdt == null ? undefined : Number(row.amount_usdt),
@@ -41,7 +42,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
 
 async function loadState(fallback) {
   if (!configured) return fallback;
-  const [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements] = await Promise.all([
+  const [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks] = await Promise.all([
     supabase.from('app_settings').select('*').eq('id', true).maybeSingle(),
     supabase.from('providers').select('id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active,status,pause_reason'),
     supabase.from('ledger_entries').select('*').order('transaction_date', { ascending: false }),
@@ -49,10 +50,11 @@ async function loadState(fallback) {
     supabase.from('provider_qr_codes').select('*'),
     supabase.from('withdrawal_requests').select('*').order('created_at', { ascending: false }),
     supabase.from('merchant_settlements').select('*').order('created_at', { ascending: false }),
+    supabase.from('share_links').select('scope,provider_id,public_token,is_active,expires_at').eq('is_active', true),
   ]);
-  const error = [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements].find(x => x.error)?.error;
+  const error = [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks].find(x => x.error)?.error;
   if (error) throw error;
-  const state = stateFromRows(fallback, settings.data, providers.data, entries.data, deposits.data, qrs.data, withdrawals.data, merchantSettlements.data);
+  const state = stateFromRows(fallback, settings.data, providers.data, entries.data, deposits.data, qrs.data, withdrawals.data, merchantSettlements.data, shareLinks.data);
   const accounting = await Promise.all((providers.data || []).map(row => supabase.rpc('accounting_for_provider', { p_provider_id: row.id })));
   accounting.forEach((result, index) => { if (!result.error && result.data?.[0]) {
     const user = state.users.find(item => item.remoteId === providers.data[index].id);

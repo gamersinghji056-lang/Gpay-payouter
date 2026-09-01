@@ -16,3 +16,5 @@
 -- 20260901091328_enforce_deposit_provider_and_errors.sql
 -- 20260901093924_withdrawal_requests_and_settlement.sql
 -- 20260901100000_manual_usdt_accounting.sql
+-- 20260901100100_durable_share_tokens.sql
+-- 20260901100200_share_link_semantics.sql

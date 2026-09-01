@@ -12,7 +12,7 @@ Deno.serve(async (req) => {
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
     const tokenHash = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
     const admin = adminClient();
-    const { data: link } = await admin.from("share_links").select("id,scope,provider_id,created_by,is_active,expires_at").eq("token_hash", tokenHash).maybeSingle();
+    const { data: link } = await admin.from("share_links").select("id,scope,provider_id,created_by,is_active,expires_at").or(`public_token.eq.${token},token_hash.eq.${tokenHash}`).maybeSingle();
     if (!link || !link.is_active || (link.expires_at && new Date(link.expires_at) <= new Date())) return publicJson({ error: "share link is invalid or revoked" }, 401);
     const providerId = link.scope === "user" ? link.provider_id : body.provider_id;
     if (!providerId) return publicJson({ error: "provider is required" }, 400);

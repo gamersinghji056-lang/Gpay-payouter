@@ -13,7 +13,7 @@ Deno.serve(async (req) => {
     const admin = adminClient();
     const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
     const tokenHash = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
-    const { data: link, error: linkError } = await admin.from("share_links").select("id,scope,provider_id,is_active,expires_at").eq("token_hash", tokenHash).maybeSingle();
+    const { data: link, error: linkError } = await admin.from("share_links").select("id,scope,provider_id,is_active,expires_at").or(`public_token.eq.${token},token_hash.eq.${tokenHash}`).maybeSingle();
     if (linkError || !link || !link.is_active || (link.expires_at && new Date(link.expires_at) <= new Date())) return publicJson({ error: "share link is invalid or revoked" }, 401);
     await admin.from("share_links").update({ last_accessed_at: new Date().toISOString() }).eq("id", link.id);
     let query = admin.from("providers").select("id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active,status,pause_reason").in("status", ["active", "paused"]);
