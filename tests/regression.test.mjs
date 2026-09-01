@@ -8,6 +8,7 @@ const financialWrite = readFileSync("supabase/functions/financial-write/index.ts
 const shareAction = readFileSync("supabase/functions/share-action/index.ts", "utf8");
 const shareResolve = readFileSync("supabase/functions/share-resolve/index.ts", "utf8");
 const migration = readFileSync("supabase/migrations/20260901131107_production_consistency_pass.sql", "utf8");
+const multiUpi = readFileSync("supabase/migrations/20260901170000_multi_upi_accounts.sql", "utf8");
 const allMigrations = migration + "\n" + readFileSync("supabase/migrations/20260901100200_share_link_semantics.sql", "utf8");
 
 function test(name, fn) {
@@ -139,4 +140,31 @@ test("public merchant settlement summary includes settlements and reservations",
   assert.match(shareResolve, /merchant_settlements/);
   assert.match(shareResolve, /withdrawal_requests/);
   assert.match(shareResolve, /merchantSummary\.availableInr/);
+});
+
+test("multi-UPI child accounts preserve legacy providers", () => {
+  assert.match(multiUpi, /create table if not exists public\.provider_upi_accounts/);
+  assert.match(multiUpi, /where not exists \(select 1 from public\.provider_upi_accounts/);
+  assert.match(multiUpi, /update public\.ledger_entries le set upi_account_id/);
+  assert.match(backend, /provider_upi_accounts/);
+});
+
+test("UPI accounts have independent commission and deposit capacity", () => {
+  assert.match(multiUpi, /configured_limit_inr numeric/);
+  assert.match(multiUpi, /allocated_limit_inr numeric/);
+  assert.match(multiUpi, /case when a\.funding_model='deposit'/);
+  assert.match(multiUpi, /consumed allocation cannot be reassigned/);
+});
+
+test("UPI allocation is atomic and cannot exceed deposit pool", () => {
+  assert.match(multiUpi, /pg_advisory|for update/);
+  assert.match(multiUpi, /UPI allocations exceed deposit capacity/);
+  assert.match(multiUpi, /allocate_upi_capacity/);
+});
+
+test("UPI status and navigation are visible in deployed UI", () => {
+  assert.match(app, /merchantOperational/);
+  assert.match(app, /expandReadonlyNav/);
+  assert.match(app, /UPI Accounts/);
+  assert.match(app, /User Commission/);
 });

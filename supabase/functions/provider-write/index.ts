@@ -10,6 +10,22 @@ Deno.serve(async (req) => {
   try {
     const { admin, user, role } = await requireStaff(req);
     const body = await req.json();
+    if (body.action === "upi_upsert") {
+      if (!body.provider_id || !body.label || body.configured_limit_inr < 0 || body.allocated_limit_inr < 0) return json({ error: "invalid UPI account payload" }, 400);
+      const { data, error } = await admin.from("provider_upi_accounts").upsert({ id: body.id || undefined, provider_id: body.provider_id, label: body.label.trim(), upi_id: body.upi_id ?? null, mobile: body.mobile ?? null, apk_mobile: body.apk_mobile ?? null, gpay_login_id: body.gpay_login_id ?? null, qr_data: body.qr_data ?? null, status: body.status || "active", merchant_operational: body.merchant_operational !== false, configured_limit_inr: Number(body.configured_limit_inr || 0), allocated_limit_inr: Number(body.allocated_limit_inr || 0), updated_at: new Date().toISOString() }, { onConflict: "provider_id,label" }).select().single();
+      if (error) throw error;
+      if (body.funding_model === "deposit" && body.allocated_limit_inr != null) { const { error: allocationError } = await admin.rpc("allocate_upi_capacity", { p_actor_id: user.id, p_upi_account_id: data.id, p_allocated_limit_inr: Number(body.allocated_limit_inr || 0) }); if (allocationError) throw allocationError; }
+      await admin.from("audit_logs").insert({ actor_id: user.id, action: "upi_account_updated", entity_type: "provider_upi_account", entity_id: data.id, new_data: { ...body, gpay_password: undefined } });
+      const { data: persisted, error: verifyError } = await admin.from("provider_upi_accounts").select("id,provider_id,label,upi_id,mobile,apk_mobile,gpay_login_id,qr_data,status,merchant_operational,configured_limit_inr,allocated_limit_inr").eq("id", data.id).single();
+      if (verifyError) throw verifyError;
+      return json({ data: persisted });
+    }
+    if (body.action === "upi_allocate") {
+      if (!body.upi_account_id || body.allocated_limit_inr < 0) return json({ error: "invalid allocation payload" }, 400);
+      const { data, error } = await admin.rpc("allocate_upi_capacity", { p_actor_id: user.id, p_upi_account_id: body.upi_account_id, p_allocated_limit_inr: Number(body.allocated_limit_inr) });
+      if (error) throw error;
+      return json({ data });
+    }
     if (["pause", "resume", "delete", "restore"].includes(body.action)) {
       if (role !== "admin") return json({ error: "admin authorization required" }, 403);
       if (!body.provider_id || typeof body.provider_id !== "string") return json({ error: "provider_id required" }, 400);
