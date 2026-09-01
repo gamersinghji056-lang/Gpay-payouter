@@ -28,6 +28,12 @@ Deno.serve(async (req) => {
       if (auditError) throw auditError;
       return publicJson({ data });
     }
+    if (body.action === "withdrawal_request") {
+      const requesterType = link.scope === "user" ? "provider" : link.scope === "merchant" ? "merchant" : "";
+      const { data, error } = await admin.rpc("request_usdt_withdrawal", { p_share_link_id: link.id, p_provider_id: link.scope === "user" ? link.provider_id : null, p_requester_type: requesterType, p_amount_usdt: body.amount_usdt, p_destination_address: body.destination_address });
+      if (error) throw error;
+      return publicJson({ data });
+    }
     let data; let error;
     if (body.action === "deposit" && link.scope === "user") ({ data, error } = await admin.rpc("create_deposit_by_share", { p_share_link_id: link.id, p_provider_id: link.provider_id, p_requested_usdt: body.amount_usdt }));
     else if (body.action === "collection" && link.scope === "merchant") ({ data, error } = await admin.rpc("post_collection_by_share", { p_share_link_id: link.id, p_provider_id: body.provider_id, p_amount_inr: body.amount_inr, p_bank_name: body.bank_name, p_account_number: body.account_number, p_transaction_date: body.transaction_date, p_note: body.note, p_idempotency_key: body.idempotency_key }));

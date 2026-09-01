@@ -6,6 +6,11 @@ Deno.serve(async (req) => {
   try {
     const { admin, user } = await requireStaff(req);
     const body = await req.json();
+    if (body.action === "mark_withdrawal_paid") {
+      const { data, error } = await admin.rpc("mark_withdrawal_paid", { p_actor_id: user.id, p_request_id: body.request_id, p_proof_tx_hash: body.proof_tx_hash ?? null, p_proof_url: body.proof_url ?? null, p_proof_note: body.proof_note ?? null });
+      if (error) throw error;
+      return json({ data });
+    }
     const { data: provider } = await admin.from("providers").select("status,is_active,pause_reason").eq("id", body.provider_id).maybeSingle();
     if (!provider || !provider.is_active || provider.status === "deleted") return json({ error: "provider is unavailable" }, 409);
     if (provider.status === "paused") return json({ error: `Provider is paused: ${provider.pause_reason || "temporarily unavailable"}` }, 409);
