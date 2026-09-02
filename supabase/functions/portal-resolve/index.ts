@@ -42,7 +42,22 @@ Deno.serve(async (req) => {
     state.entries = (ledger.data || []).filter((r) => acct.role !== "agent" || r.entry_type === "collection").map((r) => ({ id: r.id, userId: idsByProvider.get(r.provider_id) || r.provider_id, accountId: r.upi_account_id || "", type: r.entry_type, creditRate: r.credit_rate, amount: r.amount_inr == null ? undefined : Number(r.amount_inr), usdt: r.amount_usdt == null ? undefined : Number(r.amount_usdt), rate: r.rate == null ? undefined : Number(r.rate), merchantCommissionRate: r.merchant_commission_rate, merchantCommissionInr: r.merchant_commission_inr, bank: r.bank_name || "", account: r.account_number || "", date: r.transaction_date, note: r.note || "", status: r.status, createdAt: r.created_at, updatedAt: r.updated_at, idempotencyKey: r.idempotency_key || r.id }));
     state.deposits = (deposits.data || []).map((r) => ({ id: r.id, userId: idsByProvider.get(r.provider_id) || r.provider_id, requestedUsdt: r.requested_usdt, expectedUsdt: r.expected_usdt, rate: r.rate, inrValue: r.inr_value, address: r.destination_address, status: r.status, txHash: r.tx_hash || "", createdAt: r.created_at, confirmedAt: r.confirmed_at || "", source: r.source }));
     state.withdrawals = (withdrawals.data || []).map((r) => ({ id: r.id, requesterType: r.requester_type, userId: idsByProvider.get(r.provider_id) || r.provider_id, amountUsdt: Number(r.amount_usdt), rate: Number(r.rate), amountInr: Number(r.amount_inr), address: r.destination_address, status: r.status, proofTxHash: r.proof_tx_hash || "", proofUrl: r.proof_url || "", proofNote: r.proof_note || "", createdAt: r.created_at, paidAt: r.paid_at || "" }));
-    if (acct.role === "merchant") { const { data } = await admin.rpc("merchant_available_balance_inr"); state.merchantSettlement = { availableInr: Number(data || 0), availableUsdt: Number(data || 0) / 107 }; }
+    if (acct.role === "merchant") {
+      const [{ data: available }, { data: summaryRows }] = await Promise.all([admin.rpc("merchant_available_balance_inr"), admin.rpc("merchant_accounting_summary")]);
+      const summary = Array.isArray(summaryRows) ? summaryRows[0] : summaryRows;
+      const availableInr = Number(summary?.available_inr ?? available ?? 0);
+      state.merchantSettlement = {
+        totalCollectionInr: Number(summary?.total_collection_inr ?? 0),
+        frozenInr: Number(summary?.frozen_inr ?? 0),
+        settledInr: Number(summary ? Number(summary.merchant_ledger_settled_inr || 0) + Number(summary.manual_settled_inr || 0) : 0),
+        settledUsdt: Number(summary?.manual_settled_usdt ?? 0),
+        commissionEarnedInr: Number(summary?.merchant_commission_inr ?? 0),
+        chargesInr: Number(summary?.charges_inr ?? 0),
+        reservedInr: Number(summary?.reserved_inr ?? 0),
+        availableInr,
+        availableUsdt: availableInr / Number(settings.data?.settlement_rate || 107),
+      };
+    }
     return json({ role: acct.role, provider_id: acct.provider_id, state });
   } catch (error) { return json({ error: msg(error) }, 400); }
 });

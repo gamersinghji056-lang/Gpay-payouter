@@ -66,7 +66,19 @@ async function loadState(fallback) {
   for (const link of shareLinks.data || []) if (!link.public_token) { const repaired = await callFunction('share-link', { action: 'get', scope: link.scope, provider_id: link.provider_id }); if (repaired.data?.public_token) link.public_token = repaired.data.public_token; }
   const state = stateFromRows(fallback, settings.data, providers.data, entries.data, deposits.data, qrs.data, withdrawals.data, merchantSettlements.data, shareLinks.data, upiAccounts.data, charges.data);
   const { data: merchantAvailable } = await supabase.rpc('merchant_available_balance_inr');
-  state.merchantSettlement = { ...(state.merchantSettlement || {}), availableInr: Number(merchantAvailable || 0), availableUsdt: Number(merchantAvailable || 0) / Number(state.settings.settlementRate || 107) };
+  const { data: merchantSummaryRows } = await supabase.rpc('merchant_accounting_summary');
+  const merchantSummary = Array.isArray(merchantSummaryRows) ? merchantSummaryRows[0] : merchantSummaryRows;
+  const availableInr = Number(merchantSummary?.available_inr ?? merchantAvailable ?? 0);
+  state.merchantSettlement = { ...(state.merchantSettlement || {}),
+    totalCollectionInr: Number(merchantSummary?.total_collection_inr ?? 0),
+    frozenInr: Number(merchantSummary?.frozen_inr ?? 0),
+    settledInr: Number(merchantSummary ? Number(merchantSummary.merchant_ledger_settled_inr || 0) + Number(merchantSummary.manual_settled_inr || 0) : 0),
+    settledUsdt: Number(merchantSummary?.manual_settled_usdt ?? 0),
+    commissionEarnedInr: Number(merchantSummary?.merchant_commission_inr ?? 0),
+    chargesInr: Number(merchantSummary?.charges_inr ?? 0),
+    reservedInr: Number(merchantSummary?.reserved_inr ?? 0),
+    availableInr,
+    availableUsdt: availableInr / Number(state.settings.settlementRate || 107) };
   await Promise.all(state.users.flatMap(user => user.upiAccounts.map(async account => { const { data } = await supabase.rpc('accounting_for_upi', { p_upi_account_id: account.id }); const value = data?.[0]; if (value) { account.accounting = value; account.collection = Number(value.total_collection_inr || 0); account.availableLimit = Number(value.available_limit_inr || 0); } })));
   const accounting = await Promise.all((providers.data || []).map(row => supabase.rpc('accounting_for_provider', { p_provider_id: row.id })));
   accounting.forEach((result, index) => { if (!result.error && result.data?.[0]) {
