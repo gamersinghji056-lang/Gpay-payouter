@@ -10,7 +10,9 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const admin = adminClient();
     if (body.action === "login") {
-      const { data, error } = await admin.rpc("portal_create_session", { p_role: body.role, p_login_id: body.login_id, p_password: body.password });
+      const role = String(body.role || "").trim().toLowerCase();
+      const loginId = role === "user" ? String(body.login_id || "").trim().toUpperCase() : String(body.login_id || "").trim();
+      const { data, error } = await admin.rpc("portal_create_session", { p_role: role, p_login_id: loginId, p_password: body.password });
       if (error) throw error;
       return publicJson({ data: data?.[0] || null });
     }
