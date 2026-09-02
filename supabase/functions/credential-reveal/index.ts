@@ -13,6 +13,17 @@ Deno.serve(async (req) => {
     if (!key) throw new Error("credential encryption is not configured");
     if (body.action === "set" && body.public_token && body.upi_account_id) { const { error } = await admin.rpc("set_upi_gpay_credentials_by_share", { p_token: body.public_token, p_upi_account_id: body.upi_account_id, p_password: body.password, p_encryption_key: key }); if (error) throw error; return corsJson({ ok: true }); }
     if (body.action === "reveal" && body.public_token && body.upi_account_id) { const { data, error } = await admin.rpc("reveal_upi_gpay_password_by_share", { p_token: body.public_token, p_upi_account_id: body.upi_account_id, p_encryption_key: key }); if (error) { const msg = String(error.message || ""); if (msg.toLowerCase().includes("credential not configured")) return corsJson({ password: null }); throw error; } return corsJson({ password: data }); }
+    if (body.session_token && body.upi_account_id) {
+      const { data: acct, error: acctError } = await admin.rpc("portal_account_from_token", { p_token: body.session_token });
+      if (acctError || !acct) throw acctError || new Error("portal session is invalid or expired");
+      if (acct.role === "agent") return corsJson({ error: "agent is read-only" }, 403);
+      if (acct.role === "user") {
+        const { data: account } = await admin.from("provider_upi_accounts").select("id").eq("id", body.upi_account_id).eq("provider_id", acct.provider_id).maybeSingle();
+        if (!account) return corsJson({ error: "UPI account is unavailable" }, 404);
+      }
+      if (body.action === "set") { const { error } = await admin.rpc("set_upi_gpay_credentials_by_portal", { p_account_id: acct.id, p_upi_account_id: body.upi_account_id, p_password: body.password, p_encryption_key: key }); if (error) throw error; return corsJson({ ok: true }); }
+      if (body.action === "reveal" && acct.role === "merchant") { const { data, error } = await admin.rpc("reveal_upi_gpay_password_by_portal", { p_account_id: acct.id, p_upi_account_id: body.upi_account_id, p_encryption_key: key }); if (error) { const msg = String(error.message || ""); if (msg.toLowerCase().includes("credential not configured")) return corsJson({ password: null }); throw error; } return corsJson({ password: data }); }
+    }
     const { user } = await requireStaff(req);
     if (body.action === "set") {
       const { error } = body.upi_account_id

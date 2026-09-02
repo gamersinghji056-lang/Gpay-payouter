@@ -12,11 +12,11 @@ Deno.serve(async (req) => {
     const body = await req.json();
     if (body.action === "upi_upsert") {
       if (!body.provider_id || !body.label || body.configured_limit_inr < 0 || body.allocated_limit_inr < 0) return json({ error: "invalid UPI account payload" }, 400);
-      const { data, error } = await admin.from("provider_upi_accounts").upsert({ id: body.id || undefined, provider_id: body.provider_id, label: body.label.trim(), upi_id: body.upi_id ?? null, mobile: body.mobile ?? null, apk_mobile: body.apk_mobile ?? null, gpay_login_id: body.gpay_login_id ?? null, qr_data: body.qr_data ?? null, status: body.status || "active", merchant_operational: body.merchant_operational !== false, configured_limit_inr: Number(body.configured_limit_inr || 0), allocated_limit_inr: Number(body.allocated_limit_inr || 0), updated_at: new Date().toISOString() }, { onConflict: "provider_id,label" }).select().single();
+      const { data, error } = await admin.from("provider_upi_accounts").upsert({ id: body.id || undefined, provider_id: body.provider_id, label: body.label.trim(), upi_id: body.upi_id ?? null, mobile: body.mobile ?? null, apk_mobile: body.apk_mobile ?? null, gpay_login_id: body.gpay_login_id ?? null, qr_data: body.qr_data ?? null, status: body.status || "active", merchant_operational: body.merchant_operational !== false, configured_limit_inr: Number(body.configured_limit_inr || 0), allocated_limit_inr: Number(body.allocated_limit_inr || 0), bank_name: body.bank_name || null, bank_account_number: body.bank_account_number || null, account_holder_name: body.account_holder_name || null, ifsc_code: body.ifsc_code || null, bank_branch: body.bank_branch || null, account_note: body.account_note || null, updated_at: new Date().toISOString() }, { onConflict: "provider_id,label" }).select().single();
       if (error) throw error;
       if (body.funding_model === "deposit" && body.allocated_limit_inr != null) { const { error: allocationError } = await admin.rpc("allocate_upi_capacity", { p_actor_id: user.id, p_upi_account_id: data.id, p_allocated_limit_inr: Number(body.allocated_limit_inr || 0) }); if (allocationError) throw allocationError; }
       await admin.from("audit_logs").insert({ actor_id: user.id, action: "upi_account_updated", entity_type: "provider_upi_account", entity_id: data.id, new_data: { ...body, gpay_password: undefined } });
-      const { data: persisted, error: verifyError } = await admin.from("provider_upi_accounts").select("id,provider_id,label,upi_id,mobile,apk_mobile,gpay_login_id,qr_data,status,merchant_operational,configured_limit_inr,allocated_limit_inr").eq("id", data.id).single();
+      const { data: persisted, error: verifyError } = await admin.from("provider_upi_accounts").select("id,provider_id,label,upi_id,mobile,apk_mobile,gpay_login_id,qr_data,status,merchant_operational,configured_limit_inr,allocated_limit_inr,bank_name,bank_account_number,account_holder_name,ifsc_code,bank_branch,account_note").eq("id", data.id).single();
       if (verifyError) throw verifyError;
       return json({ data: persisted });
     }
@@ -52,7 +52,7 @@ Deno.serve(async (req) => {
       user_code: body.user_code, name: body.name, telegram_username: body.telegram_username ?? null, upi_id: body.upi_id ?? null,
       mobile: body.mobile ?? null, apk_mobile: body.apk_mobile ?? null, gpay_login_id: body.gpay_login_id ?? null,
       funding_model: body.funding_model, commission_limit_inr: Number(body.commission_limit_inr ?? 0),
-      unique_deposit_address: body.unique_deposit_address ?? null, is_active: body.is_active !== false, updated_at: new Date().toISOString(),
+      unique_deposit_address: String(body.unique_deposit_address || "").trim() || null, is_active: body.is_active !== false, updated_at: new Date().toISOString(),
     };
     let data;
     let error;
