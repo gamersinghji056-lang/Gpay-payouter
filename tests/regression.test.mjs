@@ -317,3 +317,52 @@ test("admin user detail operations reopen the same detail after mutation refresh
   assert.match(app, /previousTargetedLedger/);
   assert.match(app, /userPage\(window\.__adminOpenUserId\)/);
 });
+
+test("deposit user share response includes authoritative resolved address", () => {
+  assert.match(shareResolve, /const resolvedDepositAddress = provider\.unique_deposit_address \|\| appSettings\?\.admin_trc20_address \|\| ""/);
+  assert.match(shareResolve, /user\.uniqueDepositAddress = provider\.unique_deposit_address \|\| ""/);
+  assert.match(shareResolve, /user\.companyDepositAddress = appSettings\?\.admin_trc20_address \|\| ""/);
+  assert.match(shareResolve, /user\.resolvedDepositAddress = resolvedDepositAddress/);
+});
+
+test("frontend deposit QR and request use one resolved address helper", () => {
+  assert.match(app, /function resolvedDepositAddress\(u\)/);
+  assert.match(app, /function depositQrUrl\(addr,amount\)/);
+  assert.match(app, /var addr=resolvedDepositAddress\(u\)/);
+  assert.match(app, /Network: TRON \(TRC20\)/);
+  assert.match(app, /Deposit address not configured/);
+  assert.doesNotMatch(app.slice(app.lastIndexOf("function createDepositPage")), /Admin has not configured a TRC20 address yet/);
+});
+
+test("backend state maps unique and company deposit addresses", () => {
+  assert.match(backend, /uniqueDepositAddress: row\.unique_deposit_address \|\| ''/);
+  assert.match(backend, /companyDepositAddress: settings\?\.admin_trc20_address \|\| ''/);
+  assert.match(backend, /resolvedDepositAddress: row\.unique_deposit_address \|\| settings\?\.admin_trc20_address \|\| ''/);
+});
+
+test("initial backend load limits heavy histories and selects explicit columns", () => {
+  assert.match(backend, /ledger_entries'\)\.select\('id,provider_id,upi_account_id,entry_type/);
+  assert.match(backend, /deposit_requests'\)\.select\('id,provider_id,requested_usdt/);
+  assert.match(backend, /withdrawal_requests'\)\.select\('id,requester_type,provider_id/);
+  assert.match(backend, /\.limit\(500\)/);
+});
+
+test("QR signed URL generation is cached during backend hydration", () => {
+  assert.match(backend, /const qrSignedUrlCache = new Map\(\)/);
+  assert.match(backend, /async function signedQrUrl\(storagePath\)/);
+  assert.match(backend, /qr\.data = await signedQrUrl\(qr\.storagePath\)/);
+});
+
+test("realtime refreshes are debounced", () => {
+  assert.match(backend, /setTimeout\(onChange, 350\)/);
+  assert.match(backend, /postgres_changes[\s\S]*debounced/);
+});
+
+test("public share resolver removes sequential accounting and QR waterfalls", () => {
+  assert.match(shareResolve, /const providerAccounting = new Map/);
+  assert.match(shareResolve, /const upiAccountingRows = new Map/);
+  assert.match(shareResolve, /const signedQrRows = new Map/);
+  assert.match(shareResolve, /providerAccounting\.get\(provider\.id\)/);
+  assert.match(shareResolve, /upiAccountingRows\.get\(account\.id\)/);
+  assert.match(shareResolve, /signedQrRows\.get\(qr\.id\)/);
+});

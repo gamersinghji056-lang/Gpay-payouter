@@ -3,6 +3,17 @@ import { supabase } from './supabase.js';
 const configured = Boolean(supabase);
 const functionsUrl = configured ? `${import.meta.env.VITE_SUPABASE_URL}/functions/v1` : '';
 function rememberShareToken() {}
+const qrSignedUrlCache = new Map();
+
+async function signedQrUrl(storagePath) {
+  if (!storagePath) return '';
+  const cached = qrSignedUrlCache.get(storagePath);
+  if (cached && cached.expiresAt > Date.now()) return cached.url;
+  const { data } = await supabase.storage.from('provider-qr').createSignedUrl(storagePath, 300);
+  const url = data?.signedUrl || '';
+  if (url) qrSignedUrlCache.set(storagePath, { url, expiresAt: Date.now() + 240000 });
+  return url;
+}
 
 function stateFromRows(fallback, settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts = [], charges = []) {
   const next = { settings: { ...fallback.settings }, users: [], entries: [], deposits: [], withdrawals: [], merchantSettlements: merchantSettlements || [], merchantCharges: (charges || []).map(row => ({ id: row.id, providerId: row.provider_id, upiAccountId: row.upi_account_id, amountInr: Number(row.amount_inr), userName: row.user_name, upiId: row.upi_id || '', mobile: row.mobile || '', date: row.charge_date, reference: row.reference || '', note: row.note || '', status: row.status, createdAt: row.created_at })), audit: [] };
@@ -17,7 +28,7 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
     ids.set(row.id, row.user_code);
     next.users.push({ id: row.user_code, name: row.name, telegram: row.telegram_username || '', upi: row.upi_id || '',
       mobile: row.mobile || '', apk: row.apk_mobile || '', gpayLogin: row.gpay_login_id || '', qrs: [],
-      fundingMode: row.funding_model, limit: Number(row.commission_limit_inr || 0), depositAddress: row.unique_deposit_address || '',
+      fundingMode: row.funding_model, limit: Number(row.commission_limit_inr || 0), depositAddress: row.unique_deposit_address || '', uniqueDepositAddress: row.unique_deposit_address || '', companyDepositAddress: settings?.admin_trc20_address || '', resolvedDepositAddress: row.unique_deposit_address || settings?.admin_trc20_address || '',
       token: (shareLinks || []).find(link => link.scope === 'user' && link.provider_id === row.id && link.public_token && link.is_active)?.public_token || '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id,
       upiAccounts: (upiAccounts || []).filter(account => account.provider_id === row.id).map(account => ({ id: account.id, label: account.label, upi: account.upi_id || '', mobile: account.mobile || '', apk: account.apk_mobile || '', gpayLogin: account.gpay_login_id || '', qrData: account.qr_data || '', qrs: [], status: account.status, merchantOperational: account.merchant_operational, configuredLimit: Number(account.configured_limit_inr || 0), allocatedLimit: Number(account.allocated_limit_inr || 0) })) });
   }
@@ -39,16 +50,16 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
 async function loadState(fallback) {
   if (!configured) return fallback;
   const [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts, charges] = await Promise.all([
-    supabase.from('app_settings').select('*').eq('id', true).maybeSingle(),
+    supabase.from('app_settings').select('settlement_rate,deposit_base_rate,deposit_markup_pct,commission_rate_pct,admin_trc20_address,trc20_usdt_contract').eq('id', true).maybeSingle(),
     supabase.from('providers').select('id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active,status,pause_reason'),
-    supabase.from('ledger_entries').select('*').order('transaction_date', { ascending: false }),
-    supabase.from('deposit_requests').select('*').order('created_at', { ascending: false }),
-    supabase.from('provider_qr_codes').select('*'),
-    supabase.from('withdrawal_requests').select('*').order('created_at', { ascending: false }),
-    supabase.from('merchant_settlements').select('*').order('created_at', { ascending: false }),
+    supabase.from('ledger_entries').select('id,provider_id,upi_account_id,entry_type,credit_rate,amount_inr,amount_usdt,rate,merchant_commission_rate,merchant_commission_inr,bank_name,account_number,transaction_date,note,status,created_at,updated_at,created_by,idempotency_key').order('transaction_date', { ascending: false }).limit(500),
+    supabase.from('deposit_requests').select('id,provider_id,requested_usdt,expected_usdt,rate,inr_value,destination_address,status,tx_hash,created_at,confirmed_at,source').order('created_at', { ascending: false }).limit(500),
+    supabase.from('provider_qr_codes').select('id,provider_id,upi_account_id,storage_path,display_name'),
+    supabase.from('withdrawal_requests').select('id,requester_type,provider_id,amount_usdt,rate,amount_inr,destination_address,status,proof_tx_hash,proof_url,proof_note,created_at,paid_at').order('created_at', { ascending: false }).limit(500),
+    supabase.from('merchant_settlements').select('id,amount_usdt,rate,amount_inr,commission_inr,proof_tx_hash,proof_url,proof_note,created_at').order('created_at', { ascending: false }).limit(500),
     supabase.from('share_links').select('scope,provider_id,public_token,is_active,expires_at').eq('is_active', true),
     supabase.from('provider_upi_accounts').select('id,provider_id,label,upi_id,mobile,apk_mobile,gpay_login_id,qr_data,status,merchant_operational,configured_limit_inr,allocated_limit_inr'),
-    supabase.from('merchant_charges').select('*').order('charge_date', { ascending: false }),
+    supabase.from('merchant_charges').select('id,provider_id,upi_account_id,amount_inr,user_name,upi_id,mobile,charge_date,reference,note,status,created_at').order('charge_date', { ascending: false }).limit(500),
   ]);
   const error = [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts, charges].find(x => x.error)?.error;
   if (error) throw error;
@@ -63,8 +74,7 @@ async function loadState(fallback) {
     if (user) user.accounting = result.data[0];
   }});
   await Promise.all(state.users.flatMap(user => [...user.qrs, ...user.upiAccounts.flatMap(account => account.qrs || [])].map(async qr => {
-    const { data } = await supabase.storage.from('provider-qr').createSignedUrl(qr.storagePath, 300);
-    qr.data = data?.signedUrl || '';
+    qr.data = await signedQrUrl(qr.storagePath);
   })));
   return state;
 }
@@ -118,10 +128,15 @@ async function releaseLedger(entryId, providerId) {
 
 function subscribe(onChange) {
   if (!configured) return () => {};
-  const channel = supabase.channel('settleflow-live').on('postgres_changes', { event: '*', schema: 'public', table: 'providers' }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ledger_entries' }, onChange)
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'deposit_requests' }, onChange).subscribe();
-  return () => supabase.removeChannel(channel);
+  let refreshTimer = 0;
+  const debounced = () => {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(onChange, 350);
+  };
+  const channel = supabase.channel('settleflow-live').on('postgres_changes', { event: '*', schema: 'public', table: 'providers' }, debounced)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ledger_entries' }, debounced)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'deposit_requests' }, debounced).subscribe();
+  return () => { clearTimeout(refreshTimer); supabase.removeChannel(channel); };
 }
 
 async function login(email, password) { if (!configured) return false; const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) throw error; return true; }
