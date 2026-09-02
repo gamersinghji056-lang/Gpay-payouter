@@ -10,8 +10,9 @@ Deno.serve(async (req) => {
     const admin = adminClient();
     const { data: acct, error: acctError } = await admin.rpc("portal_account_from_token", { p_token: body.session_token });
     if (acctError || !acct || acct.role !== body.role) throw acctError || new Error("access denied");
-    let providerQuery = admin.from("providers").select("id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active,status,pause_reason").in("status", ["active", "paused"]);
+    let providerQuery = admin.from("providers").select("id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active,status,pause_reason");
     if (acct.role === "user") providerQuery = providerQuery.eq("id", acct.provider_id);
+    else providerQuery = providerQuery.in("status", ["active", "paused"]);
     const { data: providers, error } = await providerQuery;
     if (error) throw error;
     const ids = (providers || []).map((p) => p.id);

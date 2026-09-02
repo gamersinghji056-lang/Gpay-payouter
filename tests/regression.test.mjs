@@ -7,6 +7,7 @@ const providerWrite = readFileSync("supabase/functions/provider-write/index.ts",
 const financialWrite = readFileSync("supabase/functions/financial-write/index.ts", "utf8");
 const shareAction = readFileSync("supabase/functions/share-action/index.ts", "utf8");
 const shareResolve = readFileSync("supabase/functions/share-resolve/index.ts", "utf8");
+const portalResolve = readFileSync("supabase/functions/portal-resolve/index.ts", "utf8");
 const migration = readFileSync("supabase/migrations/20260901131107_production_consistency_pass.sql", "utf8");
 const multiUpi = readFileSync("supabase/migrations/20260901170000_multi_upi_accounts.sql", "utf8");
 const multiUpiOps = readFileSync("supabase/migrations/20260901180000_multi_upi_operations.sql", "utf8");
@@ -45,6 +46,13 @@ test("wrong stored sessions cannot override explicit portal pathnames", () => {
   assert.match(app, /return loadPortal\(explicitRoute\)/);
   assert.match(app, /function routeRole\(\)\{return getPortalRoute\(\)\}/);
   assert.doesNotMatch(app, /routeRole\(\)\|\|"admin"/);
+});
+
+test("user portal resolves exact mapped provider and never silently stalls", () => {
+  assert.match(portalResolve, /if \(acct\.role === "user"\) providerQuery = providerQuery\.eq\("id", acct\.provider_id\);/);
+  assert.match(portalResolve, /else providerQuery = providerQuery\.in\("status", \["active", "paused"\]\);/);
+  assert.match(app, /if\(role==="user"\)\{if\(db\.users\[0\]\)/);
+  assert.match(app, /throw new Error\("User account is unavailable\."\)/);
 });
 
 test("portal click tracking tolerates non-element tap targets", () => {
