@@ -29,6 +29,24 @@ test("production does not initialize from demo seed users", () => {
   assert.match(app, /function load\(\)\{var d=backend\.configured\?emptyState\(\):seed\(\)/);
 });
 
+test("explicit portal pathnames are authoritative before admin fallback", () => {
+  assert.match(app, /function getPortalRoute\(pathname\)/);
+  assert.match(app, /return \/\^\(admin\|merchant\|user\|agent\)\$\/\.test\(p\)\?p:""/);
+  const renderStart = app.indexOf("function render(){var explicitRoute=getPortalRoute()");
+  const hashFallback = app.indexOf("var h=location.hash.slice(1)", renderStart);
+  const adminFallback = app.indexOf("admin()}", hashFallback);
+  assert.ok(renderStart > -1);
+  assert.ok(hashFallback > renderStart);
+  assert.ok(adminFallback > hashFallback);
+});
+
+test("wrong stored sessions cannot override explicit portal pathnames", () => {
+  assert.match(app, /if\(explicitRoute==="merchant"\|\|explicitRoute==="user"\|\|explicitRoute==="agent"\)/);
+  assert.match(app, /return loadPortal\(explicitRoute\)/);
+  assert.match(app, /function routeRole\(\)\{return getPortalRoute\(\)\}/);
+  assert.doesNotMatch(app, /routeRole\(\)\|\|"admin"/);
+});
+
 test("demo users remain isolated to seed only", () => {
   const afterLoad = app.slice(app.indexOf("function load"));
   assert.equal(afterLoad.includes("Aarav Traders"), false);
