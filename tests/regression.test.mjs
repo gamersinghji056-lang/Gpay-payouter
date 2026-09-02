@@ -47,6 +47,10 @@ test("wrong stored sessions cannot override explicit portal pathnames", () => {
   assert.doesNotMatch(app, /routeRole\(\)\|\|"admin"/);
 });
 
+test("portal click tracking tolerates non-element tap targets", () => {
+  assert.match(app, /event\.target&&event\.target\.getAttribute\?event\.target\.getAttribute\("onclick"\)\|\|"":""/);
+});
+
 test("demo users remain isolated to seed only", () => {
   const afterLoad = app.slice(app.indexOf("function load"));
   assert.equal(afterLoad.includes("Aarav Traders"), false);
