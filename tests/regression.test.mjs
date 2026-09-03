@@ -51,8 +51,15 @@ test("wrong stored sessions cannot override explicit portal pathnames", () => {
 test("user portal resolves exact mapped provider and never silently stalls", () => {
   assert.match(portalResolve, /if \(acct\.role === "user"\) providerQuery = providerQuery\.eq\("id", acct\.provider_id\);/);
   assert.match(portalResolve, /else providerQuery = providerQuery\.in\("status", \["active", "paused"\]\);/);
-  assert.match(app, /if\(role==="user"\)\{if\(db\.users\[0\]\)/);
+  assert.match(app, /if\(role==="user"\)\{var u=db\.users\[0\];if\(u&&u\.status!=="deleted"&&u\.active!==false\)/);
   assert.match(app, /throw new Error\("User account is unavailable\."\)/);
+});
+
+test("explicit user portal route does not render legacy invalid-link screen for stale sessions", () => {
+  const loadPortalSource = app.slice(app.indexOf("async function loadPortal"), app.indexOf("async function portalLogout"));
+  assert.match(loadPortalSource, /portalLoginScreen\(role,err\.message\|\|"Access denied"\)/);
+  assert.match(loadPortalSource, /u&&u\.status!=="deleted"&&u\.active!==false/);
+  assert.match(loadPortalSource, /throw new Error\("User account is unavailable\."\)/);
 });
 
 test("portal click tracking tolerates non-element tap targets", () => {
