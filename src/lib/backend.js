@@ -107,6 +107,10 @@ async function callPublicFunction(name, body) {
   if (!response.ok) throw new Error(result.error || 'public share request failed');
   return result;
 }
+function mergeRowsById(existing, incoming) {
+  const seen = new Set((existing || []).map((row) => row.id));
+  return [...(existing || []), ...(incoming || []).filter((row) => row.id && !seen.has(row.id))];
+}
 
 async function upsertProvider(provider) {
   return callFunction('provider-write', { action: 'upsert', provider_id: provider.remoteId || null, user_code: provider.id, name: provider.name, telegram_username: provider.telegram,
@@ -162,8 +166,9 @@ function subscribe(onChange) {
 }
 
 async function login(email, password) { if (!configured) return false; const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) throw error; return true; }
-async function logout() { if (configured) await supabase.auth.signOut(); }
+async function logout() { if (configured) await supabase.auth.signOut({ scope: 'local' }); }
 async function authenticated() { if (!configured) return false; const { data: { user } } = await supabase.auth.getUser(); if (!user) return false; const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(); return profile?.role || ''; }
+async function updateAdminPassword(password) { if (!configured) throw new Error('Supabase is not configured'); const { error } = await supabase.auth.updateUser({ password }); if (error) throw error; return true; }
 async function updateProviderStatus(providerId, action, pauseReason) { return callFunction('provider-write', { action, provider_id: providerId, pause_reason: pauseReason }); }
 async function uploadQR(providerId, file, displayName, upiAccountId) {
   const scope = upiAccountId ? `${providerId}/${upiAccountId}` : providerId;
@@ -205,5 +210,16 @@ async function portalResolve(role, token) { return callPublicFunction('portal-re
 async function portalAction(token, body) { return callPublicFunction('portal-action', { session_token: token, ...body }); }
 async function portalAdmin(body) { return callFunction('portal-auth', body); }
 async function portalCredential(token, action, upiAccountId, password) { return callPublicFunction('credential-reveal', { session_token: token, action, upi_account_id: upiAccountId, password }); }
-export const backend = { configured, loadState, upsertProvider, upsertUpiAccount, allocateUpiCapacity, updateUpiLifecycle, writeSettings, postLedger, updateLedger, adminUpdateLedger, adminVoidLedger, adminUpdateWithdrawal, adminVoidWithdrawal, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, revealPublicCredential, savePublicCredential, userUpiAction, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal, manualUserPayout, manualMerchantSettlement, addMerchantCharge, reverseMerchantCharge, portalLogin, portalLogout, portalResolve, portalAction, portalAdmin, portalCredential };
+async function historyPage(body) { return callFunction('history-page', body); }
+async function portalHistoryPage(token, role, source, offset, limit) { return callPublicFunction('history-page', { session_token: token, role, source, offset, limit }); }
+function appendHistory(state, page) {
+  const records = page?.records || [];
+  if (page?.source === 'ledger') state.entries = mergeRowsById(state.entries, records);
+  if (page?.source === 'deposits') state.deposits = mergeRowsById(state.deposits, records);
+  if (page?.source === 'withdrawals') state.withdrawals = mergeRowsById(state.withdrawals, records);
+  if (page?.source === 'merchant_settlements') state.merchantSettlements = mergeRowsById(state.merchantSettlements, records);
+  if (page?.source === 'merchant_charges') state.merchantCharges = mergeRowsById(state.merchantCharges, records);
+  return page;
+}
+export const backend = { configured, loadState, upsertProvider, upsertUpiAccount, allocateUpiCapacity, updateUpiLifecycle, writeSettings, postLedger, updateLedger, adminUpdateLedger, adminVoidLedger, adminUpdateWithdrawal, adminVoidWithdrawal, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateAdminPassword, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, revealPublicCredential, savePublicCredential, userUpiAction, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal, manualUserPayout, manualMerchantSettlement, addMerchantCharge, reverseMerchantCharge, portalLogin, portalLogout, portalResolve, portalAction, portalAdmin, portalCredential, historyPage, portalHistoryPage, appendHistory };
 if (typeof window !== 'undefined') window.SettleFlow = { ...(window.SettleFlow || {}), backend };

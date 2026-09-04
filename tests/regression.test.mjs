@@ -9,6 +9,7 @@ const shareAction = readFileSync("supabase/functions/share-action/index.ts", "ut
 const shareResolve = readFileSync("supabase/functions/share-resolve/index.ts", "utf8");
 const portalResolve = readFileSync("supabase/functions/portal-resolve/index.ts", "utf8");
 const portalAction = readFileSync("supabase/functions/portal-action/index.ts", "utf8");
+const historyPage = readFileSync("supabase/functions/history-page/index.ts", "utf8");
 const adminEditVoid = readFileSync("supabase/migrations/20260904090000_admin_edit_void_controls.sql", "utf8");
 const adminPerUpi = readFileSync("supabase/migrations/20260904123000_admin_per_upi_limit_override.sql", "utf8");
 const upiLifecycle = readFileSync("supabase/migrations/20260904143000_upi_lifecycle_and_exact_attribution.sql", "utf8");
@@ -543,6 +544,38 @@ test("QR signed URL generation is cached during backend hydration", () => {
 test("realtime refreshes are debounced", () => {
   assert.match(backend, /setTimeout\(onChange, 350\)/);
   assert.match(backend, /postgres_changes[\s\S]*debounced/);
+});
+
+test("admin logout only clears the current Supabase Auth session", () => {
+  assert.match(backend, /supabase\.auth\.signOut\(\{ scope: 'local' \}\)/);
+});
+
+test("admin settings supports authenticated password reset without current password", () => {
+  assert.match(backend, /async function updateAdminPassword\(password\)/);
+  assert.match(backend, /supabase\.auth\.updateUser\(\{ password \}\)/);
+  assert.match(app, /Security & Password/);
+  assert.match(app, /SF\.resetAdminPassword/);
+  assert.doesNotMatch(app, /Current Password/);
+});
+
+test("portal sessions are not replaced during normal login", () => {
+  assert.match(readFileSync("supabase/migrations/20260903011000_fix_portal_session_rpc_ambiguity.sql", "utf8"), /insert into private\.portal_sessions\(account_id,token_hash\)/);
+  assert.doesNotMatch(readFileSync("supabase/migrations/20260903011000_fix_portal_session_rpc_ambiguity.sql", "utf8"), /delete from private\.portal_sessions where account_id/);
+});
+
+test("full history has server-side paginated access for admin and portals", () => {
+  assert.match(historyPage, /clampLimit/);
+  assert.match(historyPage, /range\(offset, offset \+ limit\)/);
+  assert.match(historyPage, /portal_account_from_token/);
+  assert.match(historyPage, /requireStaff\(req\)/);
+  assert.match(historyPage, /source === "ledger"/);
+  assert.match(historyPage, /source === "withdrawals"/);
+  assert.match(historyPage, /source === "deposits"/);
+  assert.match(historyPage, /source === "merchant_settlements"/);
+  assert.match(historyPage, /source === "merchant_charges"/);
+  assert.match(app, /Load More History/);
+  assert.match(app, /function loadMoreHistory/);
+  assert.match(backend, /portalHistoryPage/);
 });
 
 test("public share resolver removes sequential accounting and QR waterfalls", () => {
