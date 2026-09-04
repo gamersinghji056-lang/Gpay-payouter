@@ -78,6 +78,7 @@ Deno.serve(async (req) => {
       p_transaction_date: body.transaction_date ?? new Date().toISOString().slice(0, 10),
       p_reference_no: body.reference_no ?? null, p_note: body.note ?? null,
       p_status: body.status ?? "posted", p_idempotency_key: body.idempotency_key ?? null,
+      p_upi_account_id: body.upi_account_id ?? null,
     });
     if (error) throw error;
     let resultData = data;

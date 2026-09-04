@@ -9,6 +9,7 @@ const shareAction = readFileSync("supabase/functions/share-action/index.ts", "ut
 const shareResolve = readFileSync("supabase/functions/share-resolve/index.ts", "utf8");
 const portalResolve = readFileSync("supabase/functions/portal-resolve/index.ts", "utf8");
 const adminEditVoid = readFileSync("supabase/migrations/20260904090000_admin_edit_void_controls.sql", "utf8");
+const adminPerUpi = readFileSync("supabase/migrations/20260904123000_admin_per_upi_limit_override.sql", "utf8");
 const migration = readFileSync("supabase/migrations/20260901131107_production_consistency_pass.sql", "utf8");
 const multiUpi = readFileSync("supabase/migrations/20260901170000_multi_upi_accounts.sql", "utf8");
 const multiUpiOps = readFileSync("supabase/migrations/20260901180000_multi_upi_operations.sql", "utf8");
@@ -196,6 +197,40 @@ test("UPI accounts have independent commission and deposit capacity", () => {
   assert.match(multiUpi, /allocated_limit_inr numeric/);
   assert.match(multiUpi, /case when a\.funding_model='deposit'/);
   assert.match(multiUpi, /consumed allocation cannot be reassigned/);
+});
+
+test("commission provider capacity is sourced from child UPI limits", () => {
+  assert.match(adminPerUpi, /sum\(configured_limit_inr\)/);
+  assert.match(adminPerUpi, /nullif\(sum\(configured_limit_inr\),0\)/);
+  assert.match(adminPerUpi, /else least\(u\.commission_limit,greatest\(0,u\.commission_limit-\(l\.collection-l\.withdrawal\)\)\)/);
+  assert.match(app, /Total UPI Limit/);
+});
+
+test("commission UPI available is capped and over-limit is visible", () => {
+  assert.match(adminPerUpi, /else least\(a\.configured_limit_inr,greatest\(0,a\.configured_limit_inr-\(l\.collection-l\.withdrawal\)\)\)/);
+  assert.match(app, /overLimit=Math\.max\(0,exposure-limit\)/);
+  assert.match(app, /metric\("Over Limit",money\(c\.overLimit\)\)/);
+});
+
+test("admin ledger collection can target UPI and bypass capacity checks", () => {
+  assert.match(backend, /upi_account_id: entry\.accountId \|\| null/);
+  assert.match(financialWrite, /p_upi_account_id: body\.upi_account_id \?\? null/);
+  assert.match(adminPerUpi, /p_upi_account_id uuid default null/);
+  assert.match(adminPerUpi, /p_entry_type='collection' and actor_role<>'admin'/);
+  assert.doesNotMatch(adminPerUpi, /corrected collection exceeds/);
+});
+
+test("merchant collection remains server-side capacity restricted", () => {
+  assert.match(multiUpiOps, /if p_amount_inr > coalesce\(available,0\) then raise exception 'collection exceeds available limit'/);
+  assert.match(shareAction, /post_collection_by_share/);
+  assert.match(portalResolve, /accounting_for_upi/);
+});
+
+test("admin shell has one authoritative runtime page renderer", () => {
+  assert.match(app, /function adminShell\(\)/);
+  assert.match(app, /function renderAdminPage\(key\)/);
+  assert.match(app, /function admin\(\)\{if\(!isAdminLoggedIn\(\)\)return loginScreen\(\);adminShell\(\);renderAdminPage/);
+  assert.doesNotMatch(app, /s\.innerHTML='<div class="toolbar"><div><h2>'/);
 });
 
 test("UPI allocation is atomic and cannot exceed deposit pool", () => {

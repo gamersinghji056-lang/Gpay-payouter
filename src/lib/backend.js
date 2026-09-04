@@ -125,7 +125,7 @@ async function writeSettings(settings) {
 async function postLedger(entry, providerId) {
   return callFunction('financial-write', { provider_id: providerId, entry_type: entry.type, amount_inr: entry.amount,
     amount_usdt: entry.usdt, rate: entry.rate, bank_name: entry.bank, account_number: entry.account, transaction_date: entry.date,
-    note: entry.note, status: entry.status, idempotency_key: entry.idempotencyKey || entry.id, merchant_commission_rate: entry.merchantCommissionRate });
+    note: entry.note, status: entry.status, idempotency_key: entry.idempotencyKey || entry.id, upi_account_id: entry.accountId || null, merchant_commission_rate: entry.merchantCommissionRate });
 }
 
 async function updateLedger(entry, providerId) {
