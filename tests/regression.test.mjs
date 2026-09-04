@@ -10,6 +10,7 @@ const shareResolve = readFileSync("supabase/functions/share-resolve/index.ts", "
 const portalResolve = readFileSync("supabase/functions/portal-resolve/index.ts", "utf8");
 const adminEditVoid = readFileSync("supabase/migrations/20260904090000_admin_edit_void_controls.sql", "utf8");
 const adminPerUpi = readFileSync("supabase/migrations/20260904123000_admin_per_upi_limit_override.sql", "utf8");
+const upiLifecycle = readFileSync("supabase/migrations/20260904143000_upi_lifecycle_and_exact_attribution.sql", "utf8");
 const migration = readFileSync("supabase/migrations/20260901131107_production_consistency_pass.sql", "utf8");
 const multiUpi = readFileSync("supabase/migrations/20260901170000_multi_upi_accounts.sql", "utf8");
 const multiUpiOps = readFileSync("supabase/migrations/20260901180000_multi_upi_operations.sql", "utf8");
@@ -229,7 +230,7 @@ test("merchant collection remains server-side capacity restricted", () => {
 test("admin shell has one authoritative runtime page renderer", () => {
   assert.match(app, /function adminShell\(\)/);
   assert.match(app, /function renderAdminPage\(key\)/);
-  assert.match(app, /function admin\(\)\{if\(!isAdminLoggedIn\(\)\)return loginScreen\(\);adminShell\(\);renderAdminPage/);
+  assert.match(app, /function admin\(\)\{if\(!isAdminLoggedIn\(\)\)return loginScreen\(\);currentSharedRole="";adminShell\(\);renderAdminPage/);
   assert.doesNotMatch(app, /s\.innerHTML='<div class="toolbar"><div><h2>'/);
 });
 
@@ -375,9 +376,44 @@ test("manual user payout opens payout modal instead of user detail", () => {
 test("merchant account UI exposes GPay, QR, status switch, and disables collection when stopped", () => {
   assert.match(app, /GPay Details/);
   assert.match(app, /SF\.openQR/);
-  assert.match(app, /Running  ON/);
-  assert.match(app, /Stopped  OFF/);
+  assert.match(app, /● '\+state\.label/);
+  assert.match(app, /UPI account is blocked/);
   assert.match(app, /disabled/);
+});
+
+test("UPI lifecycle distinguishes user block, admin block, and archive", () => {
+  assert.match(upiLifecycle, /blocked_by_user boolean/);
+  assert.match(upiLifecycle, /blocked_by_admin boolean/);
+  assert.match(upiLifecycle, /status in \('active','paused','archived','deleted'\)/);
+  assert.match(providerWrite, /upi_admin_block/);
+  assert.match(providerWrite, /upi_archive/);
+  assert.match(app, /function upiState/);
+  assert.match(app, /Blocked by Admin/);
+  assert.match(app, /Turn OFF/);
+  assert.match(app, /adminArchiveUpi/);
+});
+
+test("new collection and INR received require exact UPI attribution", () => {
+  assert.match(app, /UPI Account \*/);
+  assert.match(app, /Select a UPI account/);
+  assert.match(app, /Add a UPI account before recording a new INR withdrawal received/);
+  assert.match(upiLifecycle, /p_entry_type in \('collection','inr_received'\) and p_upi_account_id is null/);
+  assert.match(upiLifecycle, /if p_upi_account_id is null then raise exception 'UPI account is required'/);
+});
+
+test("merchant collection blocks inactive or blocked UPI server side", () => {
+  assert.match(upiLifecycle, /account\.status <> 'active'/);
+  assert.match(upiLifecycle, /account\.blocked_by_user or account\.blocked_by_admin/);
+  assert.match(upiLifecycle, /Collection exceeds available account limit/);
+  assert.match(portalResolve, /blockedByUser/);
+  assert.match(shareResolve, /blockedByAdmin/);
+});
+
+test("UPI edits preserve existing limits and bank fields", () => {
+  assert.match(app, /configured_limit_inr:x&&x\.u\.fundingMode==="commission"\?x\.a\.configuredLimit:0/);
+  assert.match(app, /bank_account_number:v\("upiBankAccount"\)/);
+  assert.match(app, /bank_name:x\.a\.bankName/);
+  assert.match(providerWrite, /UPI ID already exists for this user/);
 });
 
 test("QR manager renders legacy and child QR surfaces", () => {

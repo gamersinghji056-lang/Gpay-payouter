@@ -1,6 +1,7 @@
 import { adminClient, json } from "../_shared/auth.ts";
 
 function message(error: unknown) { return error instanceof Error ? error.message : typeof error === "object" && error && "message" in error ? String((error as { message?: unknown }).message) : "request failed"; }
+function clean(value: unknown) { const text = String(value ?? "").trim(); return text || null; }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true });
@@ -21,11 +22,32 @@ Deno.serve(async (req) => {
         if (error) throw error; return json({ data });
       }
       if (body.action === "upi_create") {
-        const { data, error } = await admin.from("provider_upi_accounts").insert({ provider_id: acct.provider_id, label: String(body.label || "").trim(), upi_id: body.upi_id || null, mobile: body.mobile || null, apk_mobile: body.apk_mobile || null, gpay_login_id: body.gpay_login_id || null, bank_name: body.bank_name || null, bank_account_number: body.bank_account_number || null, account_holder_name: body.account_holder_name || null, ifsc_code: body.ifsc_code || null, bank_branch: body.bank_branch || null, account_note: body.account_note || null, status: "active", merchant_operational: true, configured_limit_inr: 0, allocated_limit_inr: 0 }).select().single();
+        const upiId = clean(body.upi_id);
+        if (!clean(body.label)) return json({ error: "UPI label is required" }, 400);
+        if (upiId) {
+          const { data: duplicate, error: duplicateError } = await admin.from("provider_upi_accounts").select("id").eq("provider_id", acct.provider_id).neq("status", "deleted").ilike("upi_id", upiId).limit(1);
+          if (duplicateError) throw duplicateError;
+          if (duplicate?.length) return json({ error: "UPI ID already exists for this user" }, 409);
+        }
+        const { data, error } = await admin.from("provider_upi_accounts").insert({ provider_id: acct.provider_id, label: clean(body.label), upi_id: upiId, mobile: clean(body.mobile), apk_mobile: clean(body.apk_mobile), gpay_login_id: clean(body.gpay_login_id), bank_name: clean(body.bank_name), bank_account_number: clean(body.bank_account_number), account_holder_name: clean(body.account_holder_name), ifsc_code: clean(body.ifsc_code), bank_branch: clean(body.bank_branch), account_note: clean(body.account_note), status: "active", merchant_operational: true, configured_limit_inr: 0, allocated_limit_inr: 0 }).select().single();
         if (error) throw error; return json({ data });
       }
       if (body.action === "upi_update") {
-        const { data, error } = await admin.from("provider_upi_accounts").update({ label: String(body.label || "").trim(), upi_id: body.upi_id || null, mobile: body.mobile || null, apk_mobile: body.apk_mobile || null, gpay_login_id: body.gpay_login_id || null, bank_name: body.bank_name || null, bank_account_number: body.bank_account_number || null, account_holder_name: body.account_holder_name || null, ifsc_code: body.ifsc_code || null, bank_branch: body.bank_branch || null, account_note: body.account_note || null, updated_at: new Date().toISOString() }).eq("id", body.upi_account_id).eq("provider_id", acct.provider_id).neq("status", "deleted").select().single();
+        const upiId = clean(body.upi_id);
+        if (upiId) {
+          const { data: duplicate, error: duplicateError } = await admin.from("provider_upi_accounts").select("id").eq("provider_id", acct.provider_id).neq("status", "deleted").neq("id", body.upi_account_id).ilike("upi_id", upiId).limit(1);
+          if (duplicateError) throw duplicateError;
+          if (duplicate?.length) return json({ error: "UPI ID already exists for this user" }, 409);
+        }
+        const { data, error } = await admin.from("provider_upi_accounts").update({ label: clean(body.label), upi_id: upiId, mobile: clean(body.mobile), apk_mobile: clean(body.apk_mobile), gpay_login_id: clean(body.gpay_login_id), bank_name: clean(body.bank_name), bank_account_number: clean(body.bank_account_number), account_holder_name: clean(body.account_holder_name), ifsc_code: clean(body.ifsc_code), bank_branch: clean(body.bank_branch), account_note: clean(body.account_note), updated_at: new Date().toISOString() }).eq("id", body.upi_account_id).eq("provider_id", acct.provider_id).neq("status", "deleted").select().single();
+        if (error) throw error; return json({ data });
+      }
+      if (body.action === "upi_user_status") {
+        const { data: account } = await admin.from("provider_upi_accounts").select("id,status,blocked_by_admin").eq("id", body.upi_account_id).eq("provider_id", acct.provider_id).neq("status", "deleted").maybeSingle();
+        if (!account) return json({ error: "UPI account is unavailable" }, 404);
+        if (account.blocked_by_admin && body.merchant_operational === true) return json({ error: "UPI account is blocked by Admin" }, 403);
+        const off = body.merchant_operational !== true;
+        const { data, error } = await admin.from("provider_upi_accounts").update({ blocked_by_user: off, blocked_by_user_at: off ? new Date().toISOString() : null, merchant_operational: off ? false : true, updated_at: new Date().toISOString() }).eq("id", account.id).select().single();
         if (error) throw error; return json({ data });
       }
     }
@@ -37,7 +59,7 @@ Deno.serve(async (req) => {
         if (error) throw error; return json({ data });
       }
       if (body.action === "upi_status") {
-        const { data, error } = await admin.from("provider_upi_accounts").update({ merchant_operational: body.merchant_operational === true, updated_at: new Date().toISOString() }).eq("id", body.upi_account_id).eq("provider_id", body.provider_id).select().single();
+        const { data, error } = await admin.from("provider_upi_accounts").update({ merchant_operational: body.merchant_operational === true, updated_at: new Date().toISOString() }).eq("id", body.upi_account_id).eq("provider_id", body.provider_id).eq("status", "active").eq("blocked_by_user", false).eq("blocked_by_admin", false).select().single();
         if (error) throw error; return json({ data });
       }
       if (body.action === "withdrawal_request") {
