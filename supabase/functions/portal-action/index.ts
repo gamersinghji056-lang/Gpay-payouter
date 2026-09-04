@@ -50,6 +50,20 @@ Deno.serve(async (req) => {
         const { data, error } = await admin.from("provider_upi_accounts").update({ blocked_by_user: off, blocked_by_user_at: off ? new Date().toISOString() : null, merchant_operational: off ? false : true, updated_at: new Date().toISOString() }).eq("id", account.id).select().single();
         if (error) throw error; return json({ data });
       }
+      if (body.action === "qr_upload") {
+        const { data: account } = await admin.from("provider_upi_accounts").select("id").eq("id", body.upi_account_id).eq("provider_id", acct.provider_id).neq("status", "deleted").maybeSingle();
+        if (!account) return json({ error: "UPI account is unavailable" }, 404);
+        const match = String(body.data || "").match(/^data:([^;]+);base64,(.+)$/);
+        if (!match || !/^image\/(png|jpe?g|webp|gif)$/.test(match[1])) return json({ error: "QR image is invalid" }, 400);
+        const bytes = Uint8Array.from(atob(match[2]), char => char.charCodeAt(0));
+        const path = `${acct.provider_id}/${account.id}/${crypto.randomUUID()}-${String(body.display_name || "qr").replace(/[^a-zA-Z0-9._-]/g, "_")}`;
+        const { error: uploadError } = await admin.storage.from("provider-qr").upload(path, bytes, { contentType: match[1], upsert: false });
+        if (uploadError) throw uploadError;
+        const { data, error } = await admin.from("provider_qr_codes").insert({ provider_id: acct.provider_id, upi_account_id: account.id, storage_path: path, display_name: body.display_name || "QR" }).select("id,provider_id,upi_account_id,storage_path,display_name").single();
+        if (error) { await admin.storage.from("provider-qr").remove([path]); throw error; }
+        await admin.from("audit_logs").insert({ action: "portal_user_upi_qr_uploaded", entity_type: "provider_upi_account", entity_id: account.id, new_data: { qr_id: data.id } });
+        return json({ data });
+      }
     }
     if (acct.role === "merchant") {
       if (body.action === "collection") {

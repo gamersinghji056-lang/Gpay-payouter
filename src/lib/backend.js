@@ -166,7 +166,8 @@ async function logout() { if (configured) await supabase.auth.signOut(); }
 async function authenticated() { if (!configured) return false; const { data: { user } } = await supabase.auth.getUser(); if (!user) return false; const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(); return profile?.role || ''; }
 async function updateProviderStatus(providerId, action, pauseReason) { return callFunction('provider-write', { action, provider_id: providerId, pause_reason: pauseReason }); }
 async function uploadQR(providerId, file, displayName, upiAccountId) {
-  const path = `${providerId}/${crypto.randomUUID()}-${displayName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  const scope = upiAccountId ? `${providerId}/${upiAccountId}` : providerId;
+  const path = `${scope}/${crypto.randomUUID()}-${displayName.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
   const { error: uploadError } = await supabase.storage.from('provider-qr').upload(path, file, { contentType: file.type, upsert: false });
   if (uploadError) throw uploadError;
   const { error } = await supabase.from('provider_qr_codes').insert({ provider_id: providerId, upi_account_id: upiAccountId || null, storage_path: path, display_name: displayName });

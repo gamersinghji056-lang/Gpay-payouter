@@ -8,6 +8,7 @@ const financialWrite = readFileSync("supabase/functions/financial-write/index.ts
 const shareAction = readFileSync("supabase/functions/share-action/index.ts", "utf8");
 const shareResolve = readFileSync("supabase/functions/share-resolve/index.ts", "utf8");
 const portalResolve = readFileSync("supabase/functions/portal-resolve/index.ts", "utf8");
+const portalAction = readFileSync("supabase/functions/portal-action/index.ts", "utf8");
 const adminEditVoid = readFileSync("supabase/migrations/20260904090000_admin_edit_void_controls.sql", "utf8");
 const adminPerUpi = readFileSync("supabase/migrations/20260904123000_admin_per_upi_limit_override.sql", "utf8");
 const upiLifecycle = readFileSync("supabase/migrations/20260904143000_upi_lifecycle_and_exact_attribution.sql", "utf8");
@@ -420,6 +421,34 @@ test("QR manager renders legacy and child QR surfaces", () => {
   assert.match(app, /Primary \/ Legacy QR/);
   assert.match(app, /Upload QR/);
   assert.match(app, /qr_upload/);
+});
+
+test("deposit user primary dashboard does not show commission pending KPI", () => {
+  const latestPublicUserPage = app.slice(app.lastIndexOf("function publicUserPage"));
+  const depositKpis = latestPublicUserPage.match(/var depositKpis=([^;]+);/)?.[1] || "";
+  assert.match(latestPublicUserPage, /Available Collection Capacity/);
+  assert.match(latestPublicUserPage, /Collection Used/);
+  assert.doesNotMatch(depositKpis, /Pending/);
+});
+
+test("portal user QR upload is session scoped and exact UPI attributed", () => {
+  assert.match(app, /window\.SF\.uploadAccountQR=uploadAccountQR/);
+  assert.match(app, /routeRole\(\)==="user"[\s\S]*portalAction\(\{action:"qr_upload",upi_account_id:aid/);
+  assert.match(portalAction, /body\.action === "qr_upload"/);
+  assert.match(portalAction, /\.eq\("provider_id", acct\.provider_id\)/);
+  assert.match(portalAction, /provider_qr_codes"\)\.insert\(\{ provider_id: acct\.provider_id, upi_account_id: account\.id/);
+});
+
+test("legacy QR compatibility only maps null-UPI QR rows as provider QR", () => {
+  assert.match(shareResolve, /row\.provider_id === provider\.id && !row\.upi_account_id/);
+  assert.match(app, /legacyForPrimary/);
+  assert.match(app, /Child Account/);
+});
+
+test("portal resolver preserves ledger and withdrawal correction metadata", () => {
+  assert.match(portalResolve, /is_voided,voided_at,void_reason,edited_at,edit_reason/);
+  assert.match(portalResolve, /isVoided: r\.is_voided === true/);
+  assert.match(portalResolve, /accountId: r\.upi_account_id \|\| ""/);
 });
 
 test("mutation refresh keeps active public page", () => {
