@@ -35,6 +35,26 @@ Deno.serve(async (req) => {
       if (error) throw error;
       return json({ data });
     }
+    if (body.action === "admin_update_ledger") {
+      const { data, error } = await admin.rpc("admin_update_ledger_entry", { p_actor_id: user.id, p_entry_id: body.entry_id, p_provider_id: body.provider_id, p_upi_account_id: body.upi_account_id ?? null, p_amount_inr: body.amount_inr ?? null, p_amount_usdt: body.amount_usdt ?? null, p_rate: body.rate ?? null, p_bank_name: body.bank_name ?? null, p_account_number: body.account_number ?? null, p_transaction_date: body.transaction_date ?? null, p_note: body.note ?? null, p_status: body.status ?? null, p_reason: body.reason ?? null });
+      if (error) throw error;
+      return json({ data });
+    }
+    if (body.action === "admin_void_ledger") {
+      const { data, error } = await admin.rpc("admin_void_ledger_entry", { p_actor_id: user.id, p_entry_id: body.entry_id, p_reason: body.reason ?? null });
+      if (error) throw error;
+      return json({ data });
+    }
+    if (body.action === "admin_update_withdrawal") {
+      const { data, error } = await admin.rpc("admin_update_withdrawal_request", { p_actor_id: user.id, p_request_id: body.request_id, p_upi_account_id: body.upi_account_id ?? null, p_amount_usdt: body.amount_usdt, p_rate: body.rate ?? 107, p_destination_address: body.destination_address, p_status: body.status, p_proof_tx_hash: body.proof_tx_hash ?? null, p_proof_url: body.proof_url ?? null, p_proof_note: body.proof_note ?? null, p_reason: body.reason ?? null });
+      if (error) throw error;
+      return json({ data });
+    }
+    if (body.action === "admin_void_withdrawal") {
+      const { data, error } = await admin.rpc("admin_void_withdrawal_request", { p_actor_id: user.id, p_request_id: body.request_id, p_reason: body.reason ?? null });
+      if (error) throw error;
+      return json({ data });
+    }
     const { data: provider } = await admin.from("providers").select("status,is_active,pause_reason").eq("id", body.provider_id).maybeSingle();
     if (!provider || !provider.is_active || provider.status === "deleted") return json({ error: "provider is unavailable" }, 409);
     if (provider.status === "paused") return json({ error: `Provider is paused: ${provider.pause_reason || "temporarily unavailable"}` }, 409);

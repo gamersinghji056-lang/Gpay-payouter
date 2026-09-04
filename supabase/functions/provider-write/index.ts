@@ -42,6 +42,10 @@ Deno.serve(async (req) => {
       const changes = { status: nextStatus, is_active: nextActive, pause_reason: nextStatus === "paused" ? body.pause_reason.trim() : null, paused_at: nextStatus === "paused" ? new Date().toISOString() : null, paused_by: nextStatus === "paused" ? user.id : null, updated_at: new Date().toISOString() };
       const { data, error } = await admin.from("providers").update(changes).eq("id", provider.id).select().single();
       if (error) throw error;
+      if (body.action === "delete" || body.action === "restore") {
+        const { error: portalError } = await admin.from("portal_accounts").update({ is_active: body.action === "restore", updated_at: new Date().toISOString() }).eq("role", "user").eq("provider_id", provider.id);
+        if (portalError) throw portalError;
+      }
       const action = body.action === "pause" ? "provider_paused" : body.action === "delete" ? "provider_deleted" : "provider_resumed";
       const { error: auditError } = await admin.from("audit_logs").insert({ actor_id: user.id, action, entity_type: "provider", entity_id: provider.id, old_data: { status: provider.status, is_active: provider.is_active, pause_reason: provider.pause_reason }, new_data: { status: nextStatus, is_active: nextActive, pause_reason: changes.pause_reason } });
       if (auditError) throw auditError;

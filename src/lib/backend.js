@@ -32,17 +32,17 @@ function stateFromRows(fallback, settings, providers, entries, deposits, qrs, wi
       token: (shareLinks || []).find(link => link.scope === 'user' && link.provider_id === row.id && link.public_token && link.is_active)?.public_token || '', active: row.is_active, status: row.status || (row.is_active ? 'active' : 'deleted'), pauseReason: row.pause_reason || '', remoteId: row.id,
       upiAccounts: (upiAccounts || []).filter(account => account.provider_id === row.id).map(account => ({ id: account.id, label: account.label, upi: account.upi_id || '', mobile: account.mobile || '', apk: account.apk_mobile || '', gpayLogin: account.gpay_login_id || '', qrData: account.qr_data || '', qrs: [], status: account.status, merchantOperational: account.merchant_operational, configuredLimit: Number(account.configured_limit_inr || 0), allocatedLimit: Number(account.allocated_limit_inr || 0), bankName: account.bank_name || '', bankAccountNumber: account.bank_account_number || '', accountHolderName: account.account_holder_name || '', ifscCode: account.ifsc_code || '', bankBranch: account.bank_branch || '', accountNote: account.account_note || '' })) });
   }
-  next.entries = (entries || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id, accountId: row.upi_account_id || '', type: row.entry_type, creditRate: row.credit_rate,
+  next.entries = (entries || []).map(row => ({ id: row.id, remoteProviderId: row.provider_id, userId: ids.get(row.provider_id) || row.provider_id, accountId: row.upi_account_id || '', type: row.entry_type, creditRate: row.credit_rate,
     amount: row.amount_inr == null ? undefined : Number(row.amount_inr), usdt: row.amount_usdt == null ? undefined : Number(row.amount_usdt),
     rate: row.rate == null ? undefined : Number(row.rate), merchantCommissionRate: row.merchant_commission_rate == null ? undefined : Number(row.merchant_commission_rate), merchantCommissionInr: row.merchant_commission_inr == null ? undefined : Number(row.merchant_commission_inr), bank: row.bank_name || '', account: row.account_number || '', date: row.transaction_date,
     note: row.note || '', status: row.status, createdAt: row.created_at, updatedAt: row.updated_at, enteredBy: row.created_by || 'backend',
-    idempotencyKey: row.idempotency_key || row.id }));
+    idempotencyKey: row.idempotency_key || row.id, isVoided: row.is_voided === true, voidedAt: row.voided_at || '', voidReason: row.void_reason || '', editedAt: row.edited_at || '', editReason: row.edit_reason || '' }));
   next.deposits = (deposits || []).map(row => ({ id: row.id, userId: ids.get(row.provider_id) || row.provider_id,
     requestedUsdt: Number(row.requested_usdt), expectedUsdt: Number(row.expected_usdt), rate: Number(row.rate), inrValue: Number(row.inr_value),
     address: row.destination_address, status: row.status, txHash: row.tx_hash || '', createdAt: row.created_at, confirmedAt: row.confirmed_at || '', source: row.source }));
-  next.withdrawals = (withdrawals || []).map(row => ({ id: row.id, requesterType: row.requester_type, userId: ids.get(row.provider_id) || row.provider_id,
+  next.withdrawals = (withdrawals || []).map(row => ({ id: row.id, requesterType: row.requester_type, remoteProviderId: row.provider_id || '', userId: ids.get(row.provider_id) || row.provider_id, accountId: row.upi_account_id || '',
     amountUsdt: Number(row.amount_usdt), rate: Number(row.rate), amountInr: Number(row.amount_inr), address: row.destination_address,
-    status: row.status, proofTxHash: row.proof_tx_hash || '', proofUrl: row.proof_url || '', proofNote: row.proof_note || '', createdAt: row.created_at, paidAt: row.paid_at || '' }));
+    status: row.status, proofTxHash: row.proof_tx_hash || '', proofUrl: row.proof_url || '', proofNote: row.proof_note || '', createdAt: row.created_at, paidAt: row.paid_at || '', isVoided: row.is_voided === true, voidedAt: row.voided_at || '', voidReason: row.void_reason || '', editedAt: row.edited_at || '', editReason: row.edit_reason || '' }));
   for (const row of qrs || []) { const user = next.users.find(u => u.remoteId === row.provider_id); if (user) { const qr = { id: row.id, name: row.display_name || 'QR', storagePath: row.storage_path }; const account = user.upiAccounts.find(item => item.id === row.upi_account_id); if (account) account.qrs.push(qr); else user.qrs.push(qr); } }
   return next;
 }
@@ -52,10 +52,10 @@ async function loadState(fallback) {
   const [settings, providers, entries, deposits, qrs, withdrawals, merchantSettlements, shareLinks, upiAccounts, charges] = await Promise.all([
     supabase.from('app_settings').select('settlement_rate,deposit_base_rate,deposit_markup_pct,commission_rate_pct,admin_trc20_address,trc20_usdt_contract').eq('id', true).maybeSingle(),
     supabase.from('providers').select('id,user_code,name,telegram_username,upi_id,mobile,apk_mobile,gpay_login_id,funding_model,commission_limit_inr,unique_deposit_address,is_active,status,pause_reason'),
-    supabase.from('ledger_entries').select('id,provider_id,upi_account_id,entry_type,credit_rate,amount_inr,amount_usdt,rate,merchant_commission_rate,merchant_commission_inr,bank_name,account_number,transaction_date,note,status,created_at,updated_at,created_by,idempotency_key').order('transaction_date', { ascending: false }).limit(500),
+    supabase.from('ledger_entries').select('id,provider_id,upi_account_id,entry_type,credit_rate,amount_inr,amount_usdt,rate,merchant_commission_rate,merchant_commission_inr,bank_name,account_number,transaction_date,note,status,created_at,updated_at,created_by,idempotency_key,is_voided,voided_at,void_reason,edited_at,edit_reason').order('transaction_date', { ascending: false }).limit(500),
     supabase.from('deposit_requests').select('id,provider_id,requested_usdt,expected_usdt,rate,inr_value,destination_address,status,tx_hash,created_at,confirmed_at,source').order('created_at', { ascending: false }).limit(500),
     supabase.from('provider_qr_codes').select('id,provider_id,upi_account_id,storage_path,display_name'),
-    supabase.from('withdrawal_requests').select('id,requester_type,provider_id,amount_usdt,rate,amount_inr,destination_address,status,proof_tx_hash,proof_url,proof_note,created_at,paid_at').order('created_at', { ascending: false }).limit(500),
+    supabase.from('withdrawal_requests').select('id,requester_type,provider_id,upi_account_id,amount_usdt,rate,amount_inr,destination_address,status,proof_tx_hash,proof_url,proof_note,created_at,paid_at,is_voided,voided_at,void_reason,edited_at,edit_reason').order('created_at', { ascending: false }).limit(500),
     supabase.from('merchant_settlements').select('id,amount_usdt,rate,amount_inr,commission_inr,proof_tx_hash,proof_url,proof_note,created_at').order('created_at', { ascending: false }).limit(500),
     supabase.from('share_links').select('scope,provider_id,public_token,is_active,expires_at').eq('is_active', true),
     supabase.from('provider_upi_accounts').select('id,provider_id,label,upi_id,mobile,apk_mobile,gpay_login_id,qr_data,status,merchant_operational,configured_limit_inr,allocated_limit_inr,bank_name,bank_account_number,account_holder_name,ifsc_code,bank_branch,account_note'),
@@ -134,6 +134,15 @@ async function updateLedger(entry, providerId) {
     transaction_date: entry.date, note: entry.note, status: entry.status, merchant_commission_rate: entry.merchantCommissionRate });
 }
 
+async function adminUpdateLedger(entry, providerId) {
+  return callFunction('financial-write', { action: 'admin_update_ledger', entry_id: entry.id, provider_id: providerId, upi_account_id: entry.accountId || null,
+    amount_inr: entry.amount, amount_usdt: entry.usdt, rate: entry.rate, bank_name: entry.bank, account_number: entry.account,
+    transaction_date: entry.date, note: entry.note, status: entry.status, reason: entry.reason });
+}
+async function adminVoidLedger(entryId, reason) { return callFunction('financial-write', { action: 'admin_void_ledger', entry_id: entryId, reason }); }
+async function adminUpdateWithdrawal(w) { return callFunction('financial-write', { action: 'admin_update_withdrawal', request_id: w.id, upi_account_id: w.accountId || null, amount_usdt: w.amountUsdt, rate: w.rate, destination_address: w.address, status: w.status, proof_tx_hash: w.proofTxHash, proof_url: w.proofUrl, proof_note: w.proofNote, reason: w.reason }); }
+async function adminVoidWithdrawal(id, reason) { return callFunction('financial-write', { action: 'admin_void_withdrawal', request_id: id, reason }); }
+
 async function releaseLedger(entryId, providerId) {
   return callFunction('financial-write', { action: 'release', entry_id: entryId, provider_id: providerId });
 }
@@ -194,5 +203,5 @@ async function portalResolve(role, token) { return callPublicFunction('portal-re
 async function portalAction(token, body) { return callPublicFunction('portal-action', { session_token: token, ...body }); }
 async function portalAdmin(body) { return callFunction('portal-auth', body); }
 async function portalCredential(token, action, upiAccountId, password) { return callPublicFunction('credential-reveal', { session_token: token, action, upi_account_id: upiAccountId, password }); }
-export const backend = { configured, loadState, upsertProvider, upsertUpiAccount, allocateUpiCapacity, writeSettings, postLedger, updateLedger, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, revealPublicCredential, savePublicCredential, userUpiAction, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal, manualUserPayout, manualMerchantSettlement, addMerchantCharge, reverseMerchantCharge, portalLogin, portalLogout, portalResolve, portalAction, portalAdmin, portalCredential };
+export const backend = { configured, loadState, upsertProvider, upsertUpiAccount, allocateUpiCapacity, writeSettings, postLedger, updateLedger, adminUpdateLedger, adminVoidLedger, adminUpdateWithdrawal, adminVoidWithdrawal, releaseLedger, callFunction, callPublicFunction, subscribe, login, logout, authenticated, updateProviderStatus, uploadQR, deleteQR, saveCredential, revealCredential, revealPublicCredential, savePublicCredential, userUpiAction, resolveShare, shareAction, rememberShareToken, markWithdrawalPaid, requestWithdrawal, manualUserPayout, manualMerchantSettlement, addMerchantCharge, reverseMerchantCharge, portalLogin, portalLogout, portalResolve, portalAction, portalAdmin, portalCredential };
 if (typeof window !== 'undefined') window.SettleFlow = { ...(window.SettleFlow || {}), backend };

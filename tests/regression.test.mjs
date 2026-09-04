@@ -8,6 +8,7 @@ const financialWrite = readFileSync("supabase/functions/financial-write/index.ts
 const shareAction = readFileSync("supabase/functions/share-action/index.ts", "utf8");
 const shareResolve = readFileSync("supabase/functions/share-resolve/index.ts", "utf8");
 const portalResolve = readFileSync("supabase/functions/portal-resolve/index.ts", "utf8");
+const adminEditVoid = readFileSync("supabase/migrations/20260904090000_admin_edit_void_controls.sql", "utf8");
 const migration = readFileSync("supabase/migrations/20260901131107_production_consistency_pass.sql", "utf8");
 const multiUpi = readFileSync("supabase/migrations/20260901170000_multi_upi_accounts.sql", "utf8");
 const multiUpiOps = readFileSync("supabase/migrations/20260901180000_multi_upi_operations.sql", "utf8");
@@ -214,6 +215,28 @@ test("merchant collection can target an operational UPI account", () => {
   assert.match(multiUpiOps, /p_upi_account_id uuid/);
   assert.match(multiUpiOps, /merchant_operational/);
   assert.match(shareAction, /p_upi_account_id: body\.upi_account_id/);
+});
+
+test("admin financial edits and voids are audited and server authorized", () => {
+  assert.match(adminEditVoid, /admin_update_ledger_entry/);
+  assert.match(adminEditVoid, /admin_void_ledger_entry/);
+  assert.match(adminEditVoid, /admin_update_withdrawal_request/);
+  assert.match(adminEditVoid, /admin_void_withdrawal_request/);
+  assert.match(adminEditVoid, /role='admin'/);
+  assert.match(adminEditVoid, /ledger_entry_voided/);
+  assert.match(adminEditVoid, /withdrawal_request_voided/);
+  assert.match(financialWrite, /admin_update_ledger/);
+  assert.match(financialWrite, /admin_void_withdrawal/);
+  assert.match(backend, /adminUpdateLedger/);
+  assert.match(app, /SF\.voidEntry/);
+  assert.match(app, /SF\.editWithdrawal/);
+});
+
+test("voided financial rows are excluded from authoritative accounting", () => {
+  assert.match(adminEditVoid, /entry_type='collection' and status='posted' and not is_voided/);
+  assert.match(adminEditVoid, /entry_type='inr_received' and status='posted' and not is_voided/);
+  assert.match(adminEditVoid, /status in \('pending','paid'\) and not is_voided/);
+  assert.match(adminEditVoid, /merchant_accounting_summary/);
 });
 
 test("UPI operational status is server persisted and audited", () => {
