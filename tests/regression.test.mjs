@@ -232,6 +232,33 @@ test("admin financial edits and voids are audited and server authorized", () => 
   assert.match(app, /SF\.editWithdrawal/);
 });
 
+test("admin users and UPI cards expose soft delete and restore controls", () => {
+  assert.match(app, /Users & UPI/);
+  assert.match(app, /adminUserFilter/);
+  assert.match(app, /data-user-state/);
+  assert.match(app, /adminStatusButtons\(u\)/);
+  assert.match(app, /SF\.deleteUser/);
+  assert.match(app, /SF\.resumeUser/);
+});
+
+test("admin recent user history exposes edit and void controls", () => {
+  assert.match(app, /Recent User History/);
+  assert.match(app, /userHistoryRows\(u,true\)/);
+  assert.match(app, /function ledgerActions/);
+  assert.match(app, /function withdrawalActions/);
+  assert.match(app, /SF\.editEntry/);
+  assert.match(app, /SF\.voidEntry/);
+  assert.match(app, /SF\.editWithdrawal/);
+  assert.match(app, /SF\.voidWithdrawal/);
+});
+
+test("admin transactions page exposes view edit and void actions", () => {
+  assert.match(app, /key==="transactions"[\s\S]*adminHistoryRows\(true\)/);
+  assert.match(app, /actions:adminMode\?ledgerActions\(e\):""/);
+  assert.match(app, /actions:adminMode\?withdrawalActions\(w\):""/);
+  assert.match(app, /Legacy \/ Unassigned/);
+});
+
 test("voided financial rows are excluded from authoritative accounting", () => {
   assert.match(adminEditVoid, /entry_type='collection' and status='posted' and not is_voided/);
   assert.match(adminEditVoid, /entry_type='inr_received' and status='posted' and not is_voided/);
