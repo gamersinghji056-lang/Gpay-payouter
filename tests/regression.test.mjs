@@ -13,6 +13,7 @@ const historyPage = readFileSync("supabase/functions/history-page/index.ts", "ut
 const adminEditVoid = readFileSync("supabase/migrations/20260904090000_admin_edit_void_controls.sql", "utf8");
 const adminPerUpi = readFileSync("supabase/migrations/20260904123000_admin_per_upi_limit_override.sql", "utf8");
 const upiLifecycle = readFileSync("supabase/migrations/20260904143000_upi_lifecycle_and_exact_attribution.sql", "utf8");
+const depositHistoricalRate = readFileSync("supabase/migrations/20260905102000_deposit_user_usdt_historical_rate.sql", "utf8");
 const migration = readFileSync("supabase/migrations/20260901131107_production_consistency_pass.sql", "utf8");
 const multiUpi = readFileSync("supabase/migrations/20260901170000_multi_upi_accounts.sql", "utf8");
 const multiUpiOps = readFileSync("supabase/migrations/20260901180000_multi_upi_operations.sql", "utf8");
@@ -550,6 +551,16 @@ test("admin logout only clears the current Supabase Auth session", () => {
   assert.match(backend, /supabase\.auth\.signOut\(\{ scope: 'local' \}\)/);
 });
 
+test("portal action tokens follow explicit route role before stale in-memory role", () => {
+  assert.match(app, /function activePortalToken\(r\)/);
+  assert.match(app, /return s\.token\|\|\(\(portalRole===r&&portalToken\)\?portalToken:""\)/);
+  assert.match(app, /function portalAction\(body\)\{var r=routeRole\(\)\|\|portalRole;return backend\.portalAction\(activePortalToken\(r\),body\)\}/);
+  assert.match(app, /async function portalLogout\(\)\{var r=routeRole\(\)\|\|portalRole,t=activePortalToken\(r\)/);
+  assert.match(app, /backend\.portalCredential\(activePortalToken\("merchant"\),"reveal",aid\)/);
+  assert.match(app, /backend\.portalCredential\(activePortalToken\("user"\),"set",aid,v\("publicUpiPassword"\)\)/);
+  assert.match(app, /var token=ctx==="admin"\?"":activePortalToken\(ctx\)/);
+});
+
 test("admin settings supports authenticated password reset without current password", () => {
   assert.match(backend, /async function updateAdminPassword\(password\)/);
   assert.match(backend, /supabase\.auth\.updateUser\(\{ password \}\)/);
@@ -561,6 +572,21 @@ test("admin settings supports authenticated password reset without current passw
 test("portal sessions are not replaced during normal login", () => {
   assert.match(readFileSync("supabase/migrations/20260903011000_fix_portal_session_rpc_ambiguity.sql", "utf8"), /insert into private\.portal_sessions\(account_id,token_hash\)/);
   assert.doesNotMatch(readFileSync("supabase/migrations/20260903011000_fix_portal_session_rpc_ambiguity.sql", "utf8"), /delete from private\.portal_sessions where account_id/);
+});
+
+test("deposit user USDT from user uses entered base rate plus markup and stores historical credit rate", () => {
+  assert.match(app, /USDT Amount/);
+  assert.match(app, /Base Rate/);
+  assert.match(app, /Commission \/ Markup %/);
+  assert.match(app, /Effective Rate/);
+  assert.match(app, /INR Capacity Added/);
+  assert.match(app, /effective=baseRate\*\(1\+markupPct\/100\)/);
+  assert.match(app, /capacity=usdtAmount\*effective/);
+  assert.match(app, /e\.rate=Number\(\(baseRate\*\(1\+markupPct\/100\)\)\.toFixed\(6\)\)/);
+  assert.match(app, /e\.creditRate=e\.rate/);
+  assert.match(depositHistoricalRate, /credit := p_rate/);
+  assert.match(depositHistoricalRate, /credit_rate=excluded\.credit_rate|credit_rate,new_credit|credit_rate=new_credit/);
+  assert.doesNotMatch(depositHistoricalRate.slice(depositHistoricalRate.indexOf("create or replace function public.post_ledger_entry")), /deposit_base_rate\*\(1\+deposit_markup_pct\/100\)/);
 });
 
 test("full history has server-side paginated access for admin and portals", () => {
