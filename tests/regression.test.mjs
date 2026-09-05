@@ -10,10 +10,14 @@ const shareResolve = readFileSync("supabase/functions/share-resolve/index.ts", "
 const portalResolve = readFileSync("supabase/functions/portal-resolve/index.ts", "utf8");
 const portalAction = readFileSync("supabase/functions/portal-action/index.ts", "utf8");
 const historyPage = readFileSync("supabase/functions/history-page/index.ts", "utf8");
+const packageJson = readFileSync("package.json", "utf8");
+const tronWatcher = readFileSync("server/tron-watcher.js", "utf8");
+const serverApp = readFileSync("server/app.js", "utf8");
 const adminEditVoid = readFileSync("supabase/migrations/20260904090000_admin_edit_void_controls.sql", "utf8");
 const adminPerUpi = readFileSync("supabase/migrations/20260904123000_admin_per_upi_limit_override.sql", "utf8");
 const upiLifecycle = readFileSync("supabase/migrations/20260904143000_upi_lifecycle_and_exact_attribution.sql", "utf8");
 const depositHistoricalRate = readFileSync("supabase/migrations/20260905102000_deposit_user_usdt_historical_rate.sql", "utf8");
+const depositExpiry = readFileSync("supabase/migrations/20260905113000_deposit_expiry_and_watcher_window.sql", "utf8");
 const migration = readFileSync("supabase/migrations/20260901131107_production_consistency_pass.sql", "utf8");
 const multiUpi = readFileSync("supabase/migrations/20260901170000_multi_upi_accounts.sql", "utf8");
 const multiUpiOps = readFileSync("supabase/migrations/20260901180000_multi_upi_operations.sql", "utf8");
@@ -611,4 +615,44 @@ test("public share resolver removes sequential accounting and QR waterfalls", ()
   assert.match(shareResolve, /providerAccounting\.get\(provider\.id\)/);
   assert.match(shareResolve, /upiAccountingRows\.get\(account\.id\)/);
   assert.match(shareResolve, /signedQrRows\.get\(qr\.id\)/);
+});
+
+test("Railway start command serves SPA and starts existing TRON watcher", () => {
+  assert.match(packageJson, /"start": "node server\/app\.js"/);
+  assert.match(serverApp, /require\('\.\/tron-watcher'\)/);
+  assert.match(serverApp, /startWatcher\(\)/);
+  assert.match(serverApp, /path\.join\(root, 'index\.html'\)/);
+  assert.match(serverApp, /TRON_WATCH_HEALTH = 'false'/);
+});
+
+test("TRON watcher uses mainnet USDT contract and 5 minute deposit window", () => {
+  assert.match(tronWatcher, /TR7NHqjeKQxGTCi8qZY4pL8otSzgjLj6t/);
+  assert.doesNotMatch(tronWatcher, /TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t/);
+  assert.match(tronWatcher, /LATE_RECONCILE_MS = 60 \* 60 \* 1000/);
+  assert.match(tronWatcher, /timestamp <= expiresAt \+ FUTURE_SKEW_MS/);
+  assert.match(tronWatcher, /\.in\('status', \['waiting', 'checking', 'expired'\]\)/);
+  assert.match(tronWatcher, /status: 'expired'/);
+  assert.match(tronWatcher, /confirm_deposit/);
+});
+
+test("deposit requests persist expiry and expose it through resolvers", () => {
+  assert.match(depositExpiry, /add column if not exists expires_at timestamptz/);
+  assert.match(depositExpiry, /now\(\)\+interval '5 minutes'|now\(\) \+ interval '5 minutes'/);
+  assert.match(depositExpiry, /'expired'/);
+  assert.match(backend, /created_at,expires_at,confirmed_at/);
+  assert.match(portalResolve, /created_at,expires_at,confirmed_at/);
+  assert.match(shareResolve, /created_at,expires_at,confirmed_at/);
+  assert.match(historyPage, /created_at,expires_at,confirmed_at/);
+});
+
+test("deposit UI shows refresh-safe countdown and exact payment details", () => {
+  assert.match(app, /function depositExpiresAt\(d\)/);
+  assert.match(app, /start\+5\*60\*1000/);
+  assert.match(app, /function countdownText/);
+  assert.match(app, /Waiting for payment \/ Detecting payment/);
+  assert.match(app, /Deposit Confirmed/);
+  assert.match(app, /data-deposit-countdown/);
+  assert.match(app, /Copy Address/);
+  assert.match(app, /Copy Amount/);
+  assert.match(app, /Address QR\. Send the exact amount shown\./);
 });

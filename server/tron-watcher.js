@@ -2,10 +2,11 @@ const http = require('node:http');
 const { createClient } = require('@supabase/supabase-js');
 
 const DEFAULT_BASE_URL = 'https://apilist.tronscanapi.com';
-const DEFAULT_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
+const DEFAULT_CONTRACT = 'TR7NHqjeKQxGTCi8qZY4pL8otSzgjLj6t';
 const DEFAULT_INTERVAL_MS = 20000;
-const LOOKBACK_MS = 5 * 60 * 1000;
+const LOOKBACK_MS = 30 * 1000;
 const FUTURE_SKEW_MS = 2 * 60 * 1000;
+const LATE_RECONCILE_MS = 60 * 60 * 1000;
 const MAX_RETRIES = 3;
 
 const config = {
@@ -73,10 +74,22 @@ function transferAmountMatches(tx, response, expected) {
   return BigInt(tx.amount) === expectedUnits;
 }
 
+async function expireRequest(supabase, request) {
+  if (request.status === 'expired') return;
+  const { error } = await supabase.from('deposit_requests').update({ status: 'expired' }).eq('id', request.id).in('status', ['waiting', 'checking']);
+  if (error) throw error;
+  log('deposit_expired', { deposit_id: request.id });
+}
+
 async function inspectRequest(supabase, request, usedHashes) {
   const createdAt = new Date(request.created_at).getTime();
+  const expiresAt = new Date(request.expires_at || (createdAt + 5 * 60 * 1000)).getTime();
   if (!request.destination_address || !request.expected_usdt || !Number.isFinite(createdAt)) {
     log('malformed_deposit_request', { deposit_id: request.id });
+    return;
+  }
+  if (Number.isFinite(expiresAt) && Date.now() > expiresAt + LATE_RECONCILE_MS) {
+    await expireRequest(supabase, request);
     return;
   }
   const query = new URL(`${config.baseUrl}/api/token_trc20/transfers-with-status`);
@@ -90,13 +103,18 @@ async function inspectRequest(supabase, request, usedHashes) {
   let matched;
   for (const tx of response.data) {
     const timestamp = Number(tx.block_timestamp);
-    const candidate = transferIsFinal(tx, request.destination_address) && Number.isFinite(timestamp) && timestamp >= createdAt - LOOKBACK_MS && timestamp <= Date.now() + FUTURE_SKEW_MS && transferAmountMatches(tx, response, request.expected_usdt);
+    const candidate = transferIsFinal(tx, request.destination_address) && Number.isFinite(timestamp) &&
+      timestamp >= createdAt - LOOKBACK_MS && timestamp <= expiresAt + FUTURE_SKEW_MS &&
+      transferAmountMatches(tx, response, request.expected_usdt);
     if (!candidate) { log('unmatched_transaction', { deposit_id: request.id, tx_hash: tx.hash || null }); continue; }
     if (usedHashes.has(tx.hash)) { log('duplicate_tx_skipped', { deposit_id: request.id, tx_hash: tx.hash }); continue; }
     matched = tx;
     break;
   }
-  if (!matched) return;
+  if (!matched) {
+    if (Number.isFinite(expiresAt) && Date.now() > expiresAt) await expireRequest(supabase, request);
+    return;
+  }
   log('matched_transaction', { deposit_id: request.id, provider_id: request.provider_id, tx_hash: matched.hash });
   const { data, error } = await supabase.rpc('confirm_deposit', { p_actor_id: null, p_deposit_id: request.id, p_tx_hash: matched.hash, p_source: 'blockchain' });
   if (error) {
@@ -109,7 +127,8 @@ async function inspectRequest(supabase, request, usedHashes) {
 
 async function pollOnce(supabase) {
   status.last_poll_at = new Date().toISOString();
-  const { data: requests, error } = await supabase.from('deposit_requests').select('id,provider_id,destination_address,expected_usdt,created_at,status').in('status', ['waiting', 'checking']).order('created_at', { ascending: true });
+  const cutoff = new Date(Date.now() - LATE_RECONCILE_MS).toISOString();
+  const { data: requests, error } = await supabase.from('deposit_requests').select('id,provider_id,destination_address,expected_usdt,created_at,expires_at,status').in('status', ['waiting', 'checking', 'expired']).gte('expires_at', cutoff).order('created_at', { ascending: true });
   if (error) throw error;
   status.pending_count = requests.length;
   log('pending_requests', { count: requests.length });
@@ -136,7 +155,7 @@ function healthServer() {
 }
 
 async function startWatcher() {
-  healthServer();
+  if (process.env.TRON_WATCH_HEALTH !== 'false') healthServer();
   if (!config.enabled) { log('watcher_disabled'); return; }
   assertConfiguration();
   const supabase = createClient(config.supabaseUrl, config.serviceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });

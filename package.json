@@ -7,6 +7,7 @@
     "build": "vite build",
     "test": "node tests/regression.test.mjs",
     "preview": "vite preview",
+    "start": "node server/app.js",
     "worker": "node server/tron-watcher.js"
   },
   "dependencies": {
