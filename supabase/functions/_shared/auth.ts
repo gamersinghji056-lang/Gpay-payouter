@@ -11,8 +11,9 @@ export async function requireStaff(req: Request) {
   const { data: { user }, error } = await admin.auth.getUser(token);
   if (error || !user) throw new Error("authentication required");
   const { data: profile } = await admin.from("profiles").select("role").eq("id", user.id).single();
-  if (!profile || !["admin", "operator"].includes(profile.role)) throw new Error("staff authorization required");
-  return { admin, user, role: profile.role };
+  const role = String(profile?.role || "").trim().toLowerCase();
+  if (!profile || !["admin", "operator"].includes(role)) throw new Error("staff authorization required");
+  return { admin, user, role };
 }
 
 export function json(body: unknown, status = 200) {

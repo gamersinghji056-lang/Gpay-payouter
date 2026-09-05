@@ -560,7 +560,7 @@ test("admin logout only clears the current Supabase Auth session", () => {
 
 test("admin login is authorized by Supabase session role, not tab-local storage", () => {
   assert.match(app, /adminAuthChecked=!backend\.configured/);
-  assert.match(app, /function isAdminLoggedIn\(\)\{return backend\.configured\?\(staffRole==="admin"\|\|staffRole==="operator"\):sessionStorage\.getItem\(AUTH_KEY\)==="1"\}/);
+  assert.match(app, /function isAdminLoggedIn\(\)\{var role=\(staffRole\|\|""\)\.trim\(\)\.toLowerCase\(\);return backend\.configured\?\(role==="admin"\|\|role==="operator"\):sessionStorage\.getItem\(AUTH_KEY\)==="1"\}/);
   assert.match(app, /if\(backend\.configured&&!adminAuthChecked\)return loadingScreen\("Checking Admin session\."\)/);
   assert.match(app, /if\(!isAdminLoggedIn\(\)\)throw new Error\("Admin authorization required"\)/);
   assert.match(backend, /supabase\.auth\.signInWithPassword\(\{ email, password \}\)/);

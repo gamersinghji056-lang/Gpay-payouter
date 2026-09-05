@@ -167,7 +167,8 @@ function subscribe(onChange) {
 
 async function login(email, password) { if (!configured) return false; const { error } = await supabase.auth.signInWithPassword({ email, password }); if (error) throw error; return true; }
 async function logout() { if (configured) await supabase.auth.signOut({ scope: 'local' }); }
-async function authenticated() { if (!configured) return false; const { data: { user } } = await supabase.auth.getUser(); if (!user) return false; const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(); return profile?.role || ''; }
+function normalizeRole(value) { return String(value || '').trim().toLowerCase(); }
+async function authenticated() { if (!configured) return false; const { data: { user }, error: userError } = await supabase.auth.getUser(); if (userError || !user) return false; const { data: profile, error: profileError } = await supabase.from('profiles').select('role').eq('id', user.id).maybeSingle(); if (profileError) throw profileError; return normalizeRole(profile?.role); }
 async function updateAdminPassword(password) { if (!configured) throw new Error('Supabase is not configured'); const { error } = await supabase.auth.updateUser({ password }); if (error) throw error; return true; }
 async function updateProviderStatus(providerId, action, pauseReason) { return callFunction('provider-write', { action, provider_id: providerId, pause_reason: pauseReason }); }
 async function uploadQR(providerId, file, displayName, upiAccountId) {
