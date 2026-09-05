@@ -3,6 +3,7 @@ const { createClient } = require('@supabase/supabase-js');
 
 const DEFAULT_BASE_URL = 'https://apilist.tronscanapi.com';
 const DEFAULT_CONTRACT = 'TR7NHqjeKQxGTCi8qZY4pL8otSzgjLj6t';
+const LEGACY_BAD_CONTRACT = 'TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t';
 const DEFAULT_INTERVAL_MS = 20000;
 const LOOKBACK_MS = 30 * 1000;
 const FUTURE_SKEW_MS = 2 * 60 * 1000;
@@ -14,7 +15,7 @@ const config = {
   intervalMs: Math.max(15000, Number(process.env.TRON_WATCH_INTERVAL_MS || DEFAULT_INTERVAL_MS)),
   baseUrl: (process.env.TRONSCAN_BASE_URL || DEFAULT_BASE_URL).replace(/\/$/, ''),
   network: process.env.TRON_NETWORK || 'mainnet',
-  contract: process.env.TRC20_USDT_CONTRACT || DEFAULT_CONTRACT,
+  contract: process.env.TRC20_USDT_CONTRACT === LEGACY_BAD_CONTRACT ? DEFAULT_CONTRACT : (process.env.TRC20_USDT_CONTRACT || DEFAULT_CONTRACT),
   apiKey: process.env.TRONSCAN_API_KEY || '',
   supabaseUrl: process.env.SUPABASE_URL || '',
   serviceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || '',

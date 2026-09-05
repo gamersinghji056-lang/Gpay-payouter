@@ -627,7 +627,8 @@ test("Railway start command serves SPA and starts existing TRON watcher", () => 
 
 test("TRON watcher uses mainnet USDT contract and 5 minute deposit window", () => {
   assert.match(tronWatcher, /TR7NHqjeKQxGTCi8qZY4pL8otSzgjLj6t/);
-  assert.doesNotMatch(tronWatcher, /TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t/);
+  assert.match(tronWatcher, /LEGACY_BAD_CONTRACT/);
+  assert.match(tronWatcher, /process\.env\.TRC20_USDT_CONTRACT === LEGACY_BAD_CONTRACT \? DEFAULT_CONTRACT/);
   assert.match(tronWatcher, /LATE_RECONCILE_MS = 60 \* 60 \* 1000/);
   assert.match(tronWatcher, /timestamp <= expiresAt \+ FUTURE_SKEW_MS/);
   assert.match(tronWatcher, /\.in\('status', \['waiting', 'checking', 'expired'\]\)/);

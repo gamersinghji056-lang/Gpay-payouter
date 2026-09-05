@@ -43,6 +43,7 @@ function serve(req, res) {
 
 process.env.TRON_WATCH_HEALTH = 'false';
 startWatcher().catch((error) => {
+  watcherStatus.last_error = error.message;
   console.error(JSON.stringify({ at: new Date().toISOString(), event: 'watcher_start_failure', message: error.message }));
 });
 
