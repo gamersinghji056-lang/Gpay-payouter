@@ -558,6 +558,15 @@ test("admin logout only clears the current Supabase Auth session", () => {
   assert.match(backend, /supabase\.auth\.signOut\(\{ scope: 'local' \}\)/);
 });
 
+test("admin login is authorized by Supabase session role, not tab-local storage", () => {
+  assert.match(app, /adminAuthChecked=!backend\.configured/);
+  assert.match(app, /function isAdminLoggedIn\(\)\{return backend\.configured\?\(staffRole==="admin"\|\|staffRole==="operator"\):sessionStorage\.getItem\(AUTH_KEY\)==="1"\}/);
+  assert.match(app, /if\(backend\.configured&&!adminAuthChecked\)return loadingScreen\("Checking Admin session\."\)/);
+  assert.match(app, /if\(!isAdminLoggedIn\(\)\)throw new Error\("Admin authorization required"\)/);
+  assert.match(backend, /supabase\.auth\.signInWithPassword\(\{ email, password \}\)/);
+  assert.match(backend, /supabase\.auth\.getUser\(\)/);
+});
+
 test("portal action tokens follow explicit route role before stale in-memory role", () => {
   assert.match(app, /function activePortalToken\(r\)/);
   assert.match(app, /return s\.token\|\|\(\(portalRole===r&&portalToken\)\?portalToken:""\)/);
