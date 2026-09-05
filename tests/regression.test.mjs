@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
 
 const app = readFileSync("src/app.js", "utf8");
 const backend = readFileSync("src/lib/backend.js", "utf8");
@@ -656,4 +659,16 @@ test("deposit UI shows refresh-safe countdown and exact payment details", () => 
   assert.match(app, /Copy Address/);
   assert.match(app, /Copy Amount/);
   assert.match(app, /Address QR\. Send the exact amount shown\./);
+});
+
+test("TRON watcher only matches exact confirmed USDT transfers", () => {
+  const watcher = require("../server/tron-watcher.js");
+  const destination = "TVvSJ9TubYsFucUqDCmZKHJnPRf3XGvEDA";
+  const response = { tokenInfo: { tokenDecimal: 6, tokenId: watcher.config.contract } };
+  const tx = { to: destination, contract_address: watcher.config.contract, event_type: "Transfer", confirmed: 1, revert: 0, contract_ret: "SUCCESS", final_result: "SUCCESS", status: 0, amount: "100000000" };
+  assert.equal(watcher.transferIsFinal(tx, destination), true);
+  assert.equal(watcher.transferAmountMatches(tx, response, "100"), true);
+  assert.equal(watcher.transferIsFinal({ ...tx, to: "TWrongAddress" }, destination), false);
+  assert.equal(watcher.transferIsFinal({ ...tx, contract_address: "TWrongContract" }, destination), false);
+  assert.equal(watcher.transferAmountMatches({ ...tx, amount: "99999999" }, response, "100"), false);
 });
