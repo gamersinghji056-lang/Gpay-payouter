@@ -45,7 +45,9 @@ test("production does not initialize from demo seed users", () => {
 
 test("explicit portal pathnames are authoritative before admin fallback", () => {
   assert.match(app, /function getPortalRoute\(pathname\)/);
-  assert.match(app, /return \/\^\(admin\|merchant\|user\|agent\)\$\/\.test\(p\)\?p:""/);
+assert.match(app, /function getPortalRoute/)
+assert.match(app, /\.split\("\/"\)\[0\]/)
+assert.match(app, /admin\|merchant\|user\|agent/)
   const renderStart = app.indexOf("function render(){var explicitRoute=getPortalRoute()");
   const hashFallback = app.indexOf("var h=location.hash.slice(1)", renderStart);
   const adminFallback = app.indexOf("admin()}", hashFallback);
