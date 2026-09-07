@@ -33,6 +33,38 @@ Deno.serve(async (req) => {
     const { data: provider } = await admin.from("providers").select("status,is_active,pause_reason").eq("id", providerId).maybeSingle();
     if (!provider || !["active", "paused"].includes(provider.status)) return publicJson({ error: "provider is unavailable" }, 409);
     if (provider.status === "paused") return publicJson({ error: `Provider is paused: ${provider.pause_reason || "temporarily unavailable"}` }, 409);
+    if (link.scope === "user" && body.action === "upi_allocate") {
+      const amount = Number(body.allocated_limit_inr);
+      if (!Number.isFinite(amount) || amount < 0) {
+        return publicJson({ error: "allocation must be a non-negative amount" }, 400);
+      }
+
+      const { data: account, error: accountError } = await admin
+        .from("provider_upi_accounts")
+        .select("id,provider_id,status")
+        .eq("id", body.upi_account_id)
+        .eq("provider_id", link.provider_id)
+        .neq("status", "deleted")
+        .maybeSingle();
+
+      if (accountError) throw accountError;
+      if (!account) {
+        return publicJson({ error: "UPI account is unavailable" }, 404);
+      }
+
+      const { data, error } = await admin.rpc(
+        "allocate_upi_capacity_for_provider",
+        {
+          p_provider_id: link.provider_id,
+          p_upi_account_id: account.id,
+          p_allocated_limit_inr: amount
+        }
+      );
+
+      if (error) throw error;
+      return publicJson({ data });
+    }
+
     if (link.scope === "user" && body.action === "upi_create") { const upiId = clean(body.upi_id); if (!clean(body.label)) return publicJson({ error: "UPI label is required" }, 400); if (upiId) { const { data: duplicate, error: duplicateError } = await admin.from("provider_upi_accounts").select("id").eq("provider_id", link.provider_id).neq("status", "deleted").ilike("upi_id", upiId).limit(1); if (duplicateError) throw duplicateError; if (duplicate?.length) return publicJson({ error: "UPI ID already exists for this user" }, 409); } const { data, error } = await admin.from("provider_upi_accounts").insert({ provider_id: link.provider_id, label: clean(body.label), upi_id: upiId, mobile: clean(body.mobile), apk_mobile: clean(body.apk_mobile), gpay_login_id: clean(body.gpay_login_id), bank_name: clean(body.bank_name), bank_account_number: clean(body.bank_account_number), account_holder_name: clean(body.account_holder_name), ifsc_code: clean(body.ifsc_code), bank_branch: clean(body.bank_branch), account_note: clean(body.account_note), status: "active", merchant_operational: true, configured_limit_inr: 0, allocated_limit_inr: 0 }).select("id,provider_id,label,upi_id,mobile,apk_mobile,gpay_login_id,qr_data,status,merchant_operational,blocked_by_user,blocked_by_admin,admin_block_reason,archived_at,configured_limit_inr,allocated_limit_inr,bank_name,bank_account_number,account_holder_name,ifsc_code,bank_branch,account_note").single(); if (error) throw error; await admin.from("audit_logs").insert({ action: "user_upi_account_created", entity_type: "provider_upi_account", entity_id: data.id, new_data: { scope: "user" } }); return publicJson({ data }); }
     if (link.scope === "user" && body.action === "upi_update") { const upiId = clean(body.upi_id); const { data: account } = await admin.from("provider_upi_accounts").select("id").eq("id", body.upi_account_id).eq("provider_id", link.provider_id).neq("status", "deleted").maybeSingle(); if (!account) return publicJson({ error: "UPI account is unavailable" }, 404); if (upiId) { const { data: duplicate, error: duplicateError } = await admin.from("provider_upi_accounts").select("id").eq("provider_id", link.provider_id).neq("status", "deleted").neq("id", account.id).ilike("upi_id", upiId).limit(1); if (duplicateError) throw duplicateError; if (duplicate?.length) return publicJson({ error: "UPI ID already exists for this user" }, 409); } const { data, error } = await admin.from("provider_upi_accounts").update({ label: clean(body.label), upi_id: upiId, mobile: clean(body.mobile), apk_mobile: clean(body.apk_mobile), gpay_login_id: clean(body.gpay_login_id), bank_name: clean(body.bank_name), bank_account_number: clean(body.bank_account_number), account_holder_name: clean(body.account_holder_name), ifsc_code: clean(body.ifsc_code), bank_branch: clean(body.bank_branch), account_note: clean(body.account_note), updated_at: new Date().toISOString() }).eq("id", account.id).select("id,provider_id,label,upi_id,mobile,apk_mobile,gpay_login_id,qr_data,status,merchant_operational,blocked_by_user,blocked_by_admin,admin_block_reason,archived_at,configured_limit_inr,allocated_limit_inr,bank_name,bank_account_number,account_holder_name,ifsc_code,bank_branch,account_note").single(); if (error) throw error; await admin.from("audit_logs").insert({ action: "user_upi_account_updated", entity_type: "provider_upi_account", entity_id: data.id, new_data: { scope: "user" } }); return publicJson({ data }); }
     if (link.scope === "user" && body.action === "upi_user_status") { const { data: account } = await admin.from("provider_upi_accounts").select("id,status,blocked_by_admin").eq("id", body.upi_account_id).eq("provider_id", link.provider_id).neq("status", "deleted").maybeSingle(); if (!account) return publicJson({ error: "UPI account is unavailable" }, 404); if (account.blocked_by_admin && body.merchant_operational === true) return publicJson({ error: "UPI account is blocked by Admin" }, 403); const off = body.merchant_operational !== true; const { data, error } = await admin.from("provider_upi_accounts").update({ blocked_by_user: off, blocked_by_user_at: off ? new Date().toISOString() : null, merchant_operational: off ? false : true, updated_at: new Date().toISOString() }).eq("id", account.id).select().single(); if (error) throw error; await admin.from("audit_logs").insert({ action: "user_upi_operational_status_changed", entity_type: "provider_upi_account", entity_id: account.id, new_data: { merchant_operational: data.merchant_operational, blocked_by_user: data.blocked_by_user } }); return publicJson({ data }); }

@@ -400,8 +400,68 @@ window.SF.requestPublicWithdrawal=function(kind){if(routeRole()==="user"||routeR
 var baseMerchantToggleUpi=merchantToggleUpi;merchantToggleUpi=async function(aid,pid){if(routeRole()==="merchant"){var x=accountById(aid);try{await portalAction({action:"upi_status",provider_id:pid,upi_account_id:aid,merchant_operational:!(x&&x.a.merchantOperational!==false&&x.a.status==="active")});await loadPortal("merchant")}catch(err){toast(err.message||"Status update failed")}return}return baseMerchantToggleUpi(aid,pid)}
 var baseSaveAccountCollection=saveAccountCollection;saveAccountCollection=async function(uid,aid){if(routeRole()==="merchant"){var u=db.users.find(function(x){return x.id===uid}),amount=Number(v("cAmount")||0);try{await portalAction({action:"collection",provider_id:u.remoteId,upi_account_id:aid,amount_inr:amount,bank_name:v("cBank"),account_number:v("cAccount"),transaction_date:v("cDate"),note:v("cNote"),idempotency_key:id("collection")});close();await loadPortal("merchant");toast("Collection added")}catch(err){toast(err.message||"Collection failed")}return}return baseSaveAccountCollection(uid,aid)}
 async function userToggleUpi(idv){var x=accountById(idv);if(!x)return;var next=upiState(x.a).blocked;try{await portalAction({action:"upi_user_status",upi_account_id:idv,merchant_operational:next});await loadPortal("user");toast(next?"UPI turned on":"UPI turned off")}catch(err){toast(err.message||"UPI status failed")}}
+
+function publicSetUpiAllocation(idv){
+  var x=accountById(idv);
+  if(!x)return;
+  if(x.u.fundingMode!=="deposit")return toast("Allocation is available only for Deposit Based users");
+
+  var c=accountCalc(x.u,x.a);
+  var totalFunded=Number(calc(x.u).confirmedDepositINR||0);
+  var totalAllocated=(x.u.upiAccounts||[]).reduce(function(n,a){
+    return n+Number(a.allocatedLimit||0)
+  },0);
+  var otherAllocated=Math.max(0,totalAllocated-Number(x.a.allocatedLimit||0));
+  var maxForThis=Math.max(c.collection,totalFunded-otherAllocated);
+
+  modal('<div class="modalBox small"><div class="modalHead"><div><b>Change UPI Allocation</b><div class="muted">'+esc(x.a.label||"UPI")+' ? '+esc(x.a.upi||"No UPI")+'</div></div><button class="btn ghost sm" onclick="SF.close()">Close</button></div><div class="modalBody"><div class="detailKpis">'+metric("Total Funded Capacity",money(totalFunded))+metric("Allocated To Other UPIs",money(otherAllocated))+metric("Current Allocation",money(c.limit))+metric("Collection Used",money(c.collection))+metric("Current Available",money(c.available))+metric("Maximum For This UPI",money(maxForThis))+'</div><div class="notice" style="margin-top:12px">You can move only unused funded capacity. Allocation cannot go below collection already consumed, and total UPI allocations cannot exceed your funded Deposit capacity.</div>'+field("New Allocation INR","publicUpiAllocation",c.limit,"number")+'</div><div class="modalFoot"><button class="btn primary" onclick="SF.savePublicUpiAllocation(\''+idv+'\')">Save Allocation</button></div></div>');
+}
+
+async function savePublicUpiAllocation(idv){
+  var x=accountById(idv);
+  var amount=Number(v("publicUpiAllocation")||0);
+
+  if(!x||x.u.fundingMode!=="deposit")
+    return toast("Deposit Based UPI required");
+
+  if(!Number.isFinite(amount)||amount<0)
+    return toast("Enter a valid allocation");
+
+  var c=accountCalc(x.u,x.a);
+  if(amount+0.0001<c.collection)
+    return toast("Allocation cannot be below used collection: "+money(c.collection));
+
+  try{
+    if(routeRole()==="user"){
+      await portalAction({
+        action:"upi_allocate",
+        upi_account_id:idv,
+        allocated_limit_inr:amount
+      });
+      close();
+      await loadPortal("user");
+      toast("UPI allocation updated");
+      return;
+    }
+
+    var token=location.hash.split("=").slice(1).join("=");
+    await backend.userUpiAction(token,{
+      action:"upi_allocate",
+      upi_account_id:idv,
+      allocated_limit_inr:amount
+    });
+
+    close();
+    var result=await backend.resolveShare(token);
+    db=result.state;
+    render();
+    toast("UPI allocation updated");
+  }catch(err){
+    toast(err.message||"Allocation update failed");
+  }
+}
 function upiState(a){if(a.status==="archived")return {label:"ARCHIVED",cls:"amber",blocked:true,admin:false,user:false};if(a.blockedByAdmin)return {label:"BLOCKED",cls:"red",blocked:true,admin:true,user:false};if(a.blockedByUser||a.merchantOperational===false||a.status!=="active")return {label:"BLOCKED",cls:"red",blocked:true,admin:false,user:true};return {label:"ACTIVE",cls:"green",blocked:false,admin:false,user:false}}
-function upiAccountRow(u,a,actions){var c=accountCalc(u,a),state=upiState(a),extra=actions||"",adminExtra=currentSharedRole===""?((state.admin?'<button class="btn green sm" onclick="SF.adminUnblockUpi(\''+a.id+'\')">Unblock</button>':'<button class="btn red sm" onclick="SF.adminBlockUpi(\''+a.id+'\')">Block</button>')+(a.status==="archived"?'<button class="btn green sm" onclick="SF.adminRestoreUpi(\''+a.id+'\')">Restore UPI</button>':'<button class="btn amber sm" onclick="SF.adminArchiveUpi(\''+a.id+'\')">Archive</button>')):"",limitLabel=u.fundingMode==="deposit"?"Allocation":"Configured Limit",over=c.overLimit>0?metric("Over Limit",money(c.overLimit)):"";if(currentSharedRole==="Merchant")extra='<button class="btn primary sm" '+(!state.blocked?'':'disabled')+' onclick="SF.merchantAccountCollection(\''+u.id+'\',\''+a.id+'\')">Add Collection</button><button class="btn ghost sm" onclick="SF.merchantRevealCredential(\''+u.remoteId+'\',\''+a.id+'\')">GPay Details</button><button class="btn ghost sm" onclick="SF.openQR(\''+a.id+'\')">QR</button>';if(currentSharedRole==="User")extra='<button class="btn ghost sm" onclick="SF.editPublicUpi(\''+a.id+'\')">Edit Details</button><button class="btn ghost sm" onclick="SF.publicUpiCredentials(\''+a.id+'\')">GPay</button><button class="btn ghost sm" onclick="SF.openQR(\''+a.id+'\')">QR</button>'+(state.admin?'<span class="badge red">Blocked by Admin</span>':'<button class="btn '+(state.blocked?'green':'amber')+' sm" onclick="SF.userToggleUpi(\''+a.id+'\')">'+(state.blocked?'Turn ON':'Turn OFF')+'</button>');return '<div class="card accountCard upiCard"><div class="cardHead"><div><h3>'+esc(a.label||"UPI")+'</h3><div class="meta">'+esc(u.name)+' · '+esc(u.id)+'<br>'+esc(a.upi||"No UPI")+' · '+esc(a.mobile||a.apk||"No mobile")+'</div></div><span class="badge '+state.cls+'">● '+state.label+'</span></div><div class="metrics">'+metric(limitLabel,money(c.limit))+metric("Total Collection",money(c.collection))+metric("INR Received",money(c.withdrawal))+metric("Exposure",money(c.exposure))+metric("Available Limit",money(c.available))+over+metric("Mobile / APK",esc(a.mobile||a.apk||"-"))+metric("Bank",esc(a.bankName||"-"))+metric("Account Holder",esc(a.accountHolderName||"-"))+metric("Account Number",esc(a.bankAccountNumber||"-"))+metric("IFSC",esc(a.ifscCode||"-"))+'</div><div class="cardActions actionGroup">'+extra+adminExtra+'</div></div>'}
+function upiAccountRow(u,a,actions){var c=accountCalc(u,a),state=upiState(a),extra=actions||"",adminExtra=currentSharedRole===""?((state.admin?'<button class="btn green sm" onclick="SF.adminUnblockUpi(\''+a.id+'\')">Unblock</button>':'<button class="btn red sm" onclick="SF.adminBlockUpi(\''+a.id+'\')">Block</button>')+(a.status==="archived"?'<button class="btn green sm" onclick="SF.adminRestoreUpi(\''+a.id+'\')">Restore UPI</button>':'<button class="btn amber sm" onclick="SF.adminArchiveUpi(\''+a.id+'\')">Archive</button>')):"",limitLabel=u.fundingMode==="deposit"?"Allocation":"Configured Limit",over=c.overLimit>0?metric("Over Limit",money(c.overLimit)):"";if(currentSharedRole==="Merchant")extra='<button class="btn primary sm" '+(!state.blocked?'':'disabled')+' onclick="SF.merchantAccountCollection(\''+u.id+'\',\''+a.id+'\')">Add Collection</button><button class="btn ghost sm" onclick="SF.merchantRevealCredential(\''+u.remoteId+'\',\''+a.id+'\')">GPay Details</button><button class="btn ghost sm" onclick="SF.openQR(\''+a.id+'\')">QR</button>';if(currentSharedRole==="User")extra='<button class="btn ghost sm" onclick="SF.editPublicUpi(\''+a.id+'\')">Edit Details</button><button class="btn ghost sm" onclick="SF.publicUpiCredentials(\''+a.id+'\')">GPay</button><button class="btn ghost sm" onclick="SF.openQR(\''+a.id+'\')">QR</button>'+(u.fundingMode==="deposit"?'<button class="btn primary sm" onclick="SF.publicSetUpiAllocation(\''+a.id+'\')">Change Allocation</button>':"")+(state.admin?'<span class="badge red">Blocked by Admin</span>':'<button class="btn '+(state.blocked?'green':'amber')+' sm" onclick="SF.userToggleUpi(\''+a.id+'\')">'+(state.blocked?'Turn ON':'Turn OFF')+'</button>');return '<div class="card accountCard upiCard"><div class="cardHead"><div><h3>'+esc(a.label||"UPI")+'</h3><div class="meta">'+esc(u.name)+' · '+esc(u.id)+'<br>'+esc(a.upi||"No UPI")+' · '+esc(a.mobile||a.apk||"No mobile")+'</div></div><span class="badge '+state.cls+'">● '+state.label+'</span></div><div class="metrics">'+metric(limitLabel,money(c.limit))+metric("Total Collection",money(c.collection))+metric("INR Received",money(c.withdrawal))+metric("Exposure",money(c.exposure))+metric("Available Limit",money(c.available))+over+metric("Mobile / APK",esc(a.mobile||a.apk||"-"))+metric("Bank",esc(a.bankName||"-"))+metric("Account Holder",esc(a.accountHolderName||"-"))+metric("Account Number",esc(a.bankAccountNumber||"-"))+metric("IFSC",esc(a.ifscCode||"-"))+'</div><div class="cardActions actionGroup">'+extra+adminExtra+'</div></div>'}
 accountRow=upiAccountRow
 var baseMerchantRevealCredential=merchantRevealCredential;merchantRevealCredential=async function(pid,aid){if(routeRole()==="merchant"){var x=accountById(aid);try{var r=await backend.portalCredential(activePortalToken("merchant"),"reveal",aid);modal('<div class="modalBox small"><div class="modalHead"><b>GPay Details</b><button class="btn ghost sm" onclick="SF.close()">Close</button></div><div class="modalBody"><div class="detailKpis">'+metric("User",esc(x?.u.name||""))+metric("UPI Label",esc(x?.a.label||"UPI"))+metric("GPay Login ID",esc(x?.a.gpayLogin||"-"))+'</div><h3>Password</h3><code>'+esc(r.password||"No GPay password saved")+'</code></div></div>')}catch(err){toast("Unable to reveal GPay password")}return}return baseMerchantRevealCredential(pid,aid)}
 var baseSavePublicCredential=savePublicCredential;savePublicCredential=async function(aid){if(routeRole()==="user"){var x=accountById(aid);try{if(x&&v("publicUpiLogin")!==x.a.gpayLogin)await portalAction({action:"upi_update",upi_account_id:aid,label:x.a.label,upi_id:x.a.upi,mobile:x.a.mobile,apk_mobile:x.a.apk,gpay_login_id:v("publicUpiLogin"),bank_name:x.a.bankName,bank_account_number:x.a.bankAccountNumber,account_holder_name:x.a.accountHolderName,ifsc_code:x.a.ifscCode,bank_branch:x.a.bankBranch,account_note:x.a.accountNote});if(v("publicUpiPassword"))await backend.portalCredential(activePortalToken("user"),"set",aid,v("publicUpiPassword"));close();await loadPortal("user");toast("GPay details saved")}catch(err){toast(err.message||"Credential save failed")}return}return baseSavePublicCredential(aid)}
@@ -410,6 +470,6 @@ async function generatePortalCred(role,providerId){try{var r=await backend.porta
 function sharePortalCred(role,providerId,loginId){var key=role+":"+(providerId||"global"),pwd=portalGenerated[key];modal('<div class="modalBox small"><div class="modalHead"><b>Share Credentials</b><button class="btn ghost sm" onclick="SF.close()">Close</button></div><div class="modalBody"><textarea style="width:100%;min-height:180px">'+esc("SettleFlow "+portalLabel(role)+" Access\n\nPortal:\n"+location.origin+"/"+role+"\n\nLogin ID:\n"+loginId+"\n\nPassword:\n"+(pwd||"Reset password to generate new shareable credentials."))+'</textarea></div></div>')}
 async function setPortalStatus(accountId,isActive){try{await backend.portalAdmin({action:"status",account_id:accountId,is_active:isActive});await refreshFromBackend();toast(isActive?"Portal account enabled":"Portal account disabled")}catch(err){toast(err.message||"Status update failed")}}
 var baseConsolidated=consolidatedAdminPage;consolidatedAdminPage=function(key){if(key==="share")return portalAccessPage();return baseConsolidated(key)}
-window.SF.portalLogin=portalLogin;window.SF.logout=logout;window.SF.login=login;window.SF.resetAdminPassword=resetAdminPassword;window.SF.loadMoreHistory=loadMoreHistory;window.SF.updateUsdtCapacityPreview=updateUsdtCapacityPreview;window.SF.generatePortalCred=generatePortalCred;window.SF.sharePortalCred=sharePortalCred;window.SF.setPortalStatus=setPortalStatus;window.SF.addPublicUpi=addPublicUpi;window.SF.savePublicUpi=savePublicUpi;window.SF.savePublicUpiEdit=savePublicUpiEdit;window.SF.savePublicCredential=savePublicCredential;window.SF.uploadAccountQR=uploadAccountQR;window.SF.generateDeposit=generateDeposit;window.SF.merchantToggleUpi=merchantToggleUpi;window.SF.merchantRevealCredential=merchantRevealCredential;window.SF.saveAccountCollection=saveAccountCollection;window.SF.addUpi=addUpi;window.SF.saveUpi=saveUpi;window.SF.adminUserFilter=adminUserFilter;window.SF.viewEntry=viewEntry;window.SF.voidEntry=voidEntry;window.SF.confirmVoidEntry=confirmVoidEntry;window.SF.viewWithdrawal=viewWithdrawal;window.SF.editWithdrawal=editWithdrawal;window.SF.updateWithdrawal=updateWithdrawal;window.SF.voidWithdrawal=voidWithdrawal;window.SF.confirmVoidWithdrawal=confirmVoidWithdrawal;window.SF.userToggleUpi=userToggleUpi;window.SF.adminBlockUpi=adminBlockUpi;window.SF.adminUnblockUpi=adminUnblockUpi;window.SF.adminArchiveUpi=adminArchiveUpi;window.SF.adminRestoreUpi=adminRestoreUpi;
+window.SF.portalLogin=portalLogin;window.SF.logout=logout;window.SF.login=login;window.SF.resetAdminPassword=resetAdminPassword;window.SF.loadMoreHistory=loadMoreHistory;window.SF.updateUsdtCapacityPreview=updateUsdtCapacityPreview;window.SF.generatePortalCred=generatePortalCred;window.SF.sharePortalCred=sharePortalCred;window.SF.setPortalStatus=setPortalStatus;window.SF.addPublicUpi=addPublicUpi;window.SF.savePublicUpi=savePublicUpi;window.SF.savePublicUpiEdit=savePublicUpiEdit;window.SF.savePublicCredential=savePublicCredential;window.SF.uploadAccountQR=uploadAccountQR;window.SF.generateDeposit=generateDeposit;window.SF.merchantToggleUpi=merchantToggleUpi;window.SF.merchantRevealCredential=merchantRevealCredential;window.SF.saveAccountCollection=saveAccountCollection;window.SF.addUpi=addUpi;window.SF.saveUpi=saveUpi;window.SF.adminUserFilter=adminUserFilter;window.SF.viewEntry=viewEntry;window.SF.voidEntry=voidEntry;window.SF.confirmVoidEntry=confirmVoidEntry;window.SF.viewWithdrawal=viewWithdrawal;window.SF.editWithdrawal=editWithdrawal;window.SF.updateWithdrawal=updateWithdrawal;window.SF.voidWithdrawal=voidWithdrawal;window.SF.confirmVoidWithdrawal=confirmVoidWithdrawal;window.SF.userToggleUpi=userToggleUpi;window.SF.publicSetUpiAllocation=publicSetUpiAllocation;window.SF.savePublicUpiAllocation=savePublicUpiAllocation;window.SF.adminBlockUpi=adminBlockUpi;window.SF.adminUnblockUpi=adminUnblockUpi;window.SF.adminArchiveUpi=adminArchiveUpi;window.SF.adminRestoreUpi=adminRestoreUpi;
 render();
 })();

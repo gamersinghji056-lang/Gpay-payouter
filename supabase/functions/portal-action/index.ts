@@ -21,6 +21,38 @@ Deno.serve(async (req) => {
         const { data, error } = await admin.rpc("request_usdt_withdrawal_by_portal", { p_account_id: acct.id, p_amount_usdt: body.amount_usdt, p_destination_address: body.destination_address });
         if (error) throw error; return json({ data });
       }
+      if (body.action === "upi_allocate") {
+        const amount = Number(body.allocated_limit_inr);
+        if (!Number.isFinite(amount) || amount < 0) {
+          return json({ error: "allocation must be a non-negative amount" }, 400);
+        }
+
+        const { data: account, error: accountError } = await admin
+          .from("provider_upi_accounts")
+          .select("id,provider_id,status")
+          .eq("id", body.upi_account_id)
+          .eq("provider_id", acct.provider_id)
+          .neq("status", "deleted")
+          .maybeSingle();
+
+        if (accountError) throw accountError;
+        if (!account) {
+          return json({ error: "UPI account is unavailable" }, 404);
+        }
+
+        const { data, error } = await admin.rpc(
+          "allocate_upi_capacity_for_provider",
+          {
+            p_provider_id: acct.provider_id,
+            p_upi_account_id: account.id,
+            p_allocated_limit_inr: amount
+          }
+        );
+
+        if (error) throw error;
+        return json({ data });
+      }
+
       if (body.action === "upi_create") {
         const upiId = clean(body.upi_id);
         if (!clean(body.label)) return json({ error: "UPI label is required" }, 400);
