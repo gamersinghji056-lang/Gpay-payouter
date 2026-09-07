@@ -57,7 +57,46 @@ Deno.serve(async (req) => {
       const providerWithdrawals = (withdrawals.data || []).filter(row => row.provider_id === provider.id), paidCommission = providerWithdrawals.filter(row => row.status === "paid").reduce((sum, row) => sum + Number(row.amount_inr || 0), 0), reservedCommission = providerWithdrawals.filter(row => row.status === "pending").reduce((sum, row) => sum + Number(row.amount_inr || 0), 0), earnedCommission = Number(accounting.successful_withdrawal_inr || 0) * Number(appSettings?.commission_rate_pct || 3.5) / 100;
       const resolvedDepositAddress = provider.unique_deposit_address || appSettings?.admin_trc20_address || "";
       const user = { id: provider.user_code, remoteId: provider.id, name: provider.name, telegram: provider.telegram_username || "", upi: provider.upi_id || "", mobile: provider.mobile || "", apk: provider.apk_mobile || "", gpayLogin: provider.gpay_login_id || "", qrs: [], token: privateView ? token : "", active: provider.status !== "deleted", status: provider.status, pauseReason: provider.pause_reason || "", upiAccounts: (upiAccounts.data || []).filter(account => account.provider_id === provider.id).map(account => ({ id: account.id, label: account.label, upi: account.upi_id || "", mobile: account.mobile || "", apk: account.apk_mobile || "", gpayLogin: account.gpay_login_id || "", qrData: account.qr_data || "", status: account.status, merchantOperational: account.merchant_operational, blockedByUser: account.blocked_by_user === true, blockedByAdmin: account.blocked_by_admin === true, adminBlockReason: account.admin_block_reason || "", archivedAt: account.archived_at || "", configuredLimit: Number(account.configured_limit_inr || 0), allocatedLimit: Number(account.allocated_limit_inr || 0), bankName: account.bank_name || "", bankAccountNumber: account.bank_account_number || "", accountHolderName: account.account_holder_name || "", ifscCode: account.ifsc_code || "", bankBranch: account.bank_branch || "", accountNote: account.account_note || "" })), accounting: { collection_inr: accounting.collection_inr || 0, collection_capacity_inr: accounting.collection_capacity_inr || 0, frozen_inr: accounting.frozen_inr || 0, successful_withdrawal_inr: accounting.successful_withdrawal_inr || 0, user_usdt_inr: accounting.user_usdt_inr || 0, merchant_settled_inr: accounting.merchant_settled_inr || 0, confirmed_deposit_inr: privateView ? accounting.confirmed_deposit_inr || 0 : 0, commission_earned_inr: privateView ? earnedCommission : 0, commission_paid_inr: privateView ? paidCommission : 0, commission_reserved_inr: privateView ? reservedCommission : 0, commission_available_inr: privateView ? Math.max(0, earnedCommission - paidCommission - reservedCommission) : 0 } };
-      for (const account of user.upiAccounts) { const value = upiAccountingRows.get(account.id); if (value) { account.accounting = value; account.collection = Number(value.total_collection_inr || 0); account.availableLimit = Number(value.available_limit_inr || 0); } account.qrs = []; for (const qr of (qrs.data || []).filter(row => row.upi_account_id === account.id)) { account.qrs.push({ id: qr.id, name: qr.display_name || "QR", storagePath: qr.storage_path, data: signedQrRows.get(qr.id) || "" }); } }
+      for (const account of user.upiAccounts) {
+        const value = upiAccountingRows.get(account.id);
+        if (value) {
+          const isDeposit = value.funding_model === "deposit";
+          const collectionInr = Number(value.total_collection_inr || 0);
+          const withdrawalInr = Number(value.successful_withdrawal_inr || 0);
+          const limitInr = isDeposit
+            ? Number(value.allocated_limit_inr || 0)
+            : Number(value.configured_limit_inr || 0);
+          const availableInr = Number(value.available_limit_inr || 0);
+          const usedInr = isDeposit
+            ? collectionInr
+            : Math.max(0, collectionInr - withdrawalInr);
+
+          account.collection = collectionInr;
+          account.availableLimit = availableInr;
+          account.operationalAccounting = {
+            collectionInr,
+            withdrawalInr,
+            limitInr,
+            availableInr,
+            usedInr,
+            usedPct: limitInr > 0
+              ? Math.min(100, (usedInr / limitInr) * 100)
+              : 0,
+          };
+
+          if (privateView) account.accounting = value;
+        }
+
+        account.qrs = [];
+        for (const qr of (qrs.data || []).filter(row => row.upi_account_id === account.id)) {
+          account.qrs.push({
+            id: qr.id,
+            name: qr.display_name || "QR",
+            storagePath: qr.storage_path,
+            data: signedQrRows.get(qr.id) || ""
+          });
+        }
+      }
       if (privateView) { user.fundingMode = provider.funding_model; user.depositAddress = provider.unique_deposit_address || ""; user.uniqueDepositAddress = provider.unique_deposit_address || ""; user.companyDepositAddress = appSettings?.admin_trc20_address || ""; user.resolvedDepositAddress = resolvedDepositAddress; }
       for (const qr of (qrs.data || []).filter(row => row.provider_id === provider.id && !row.upi_account_id)) {
         user.qrs.push({ id: qr.id, name: qr.display_name || "QR", storagePath: qr.storage_path, data: signedQrRows.get(qr.id) || "" });
@@ -65,7 +104,41 @@ Deno.serve(async (req) => {
       state.users.push(user);
     }
     for (const row of ledger.data || []) { if (privateView || row.entry_type === "collection") state.entries.push({ id: row.id, userId: (providers || []).find(provider => provider.id === row.provider_id)?.user_code, accountId: row.upi_account_id || "", type: row.entry_type, amount: row.amount_inr, usdt: row.amount_usdt, rate: row.rate, bank: row.bank_name, account: row.account_number, date: row.transaction_date, note: row.note, status: row.status, isVoided: row.is_voided === true, voidedAt: row.voided_at || "", voidReason: row.void_reason || "", editedAt: row.edited_at || "", editReason: row.edit_reason || "" }); if (link.scope === "merchant" && row.status !== "void" && row.is_voided !== true) { const amount = Number(row.amount_inr || 0), usdt = Number(row.amount_usdt || 0), rate = Number(row.rate || 107); if (row.entry_type === "collection" && row.status === "posted") merchantSummary.totalCollectionInr += amount; if (row.entry_type === "frozen" && row.status === "active") merchantSummary.frozenInr += amount; if (row.entry_type === "merchant_usdt" && row.status === "posted") { merchantSummary.settledUsdt += usdt; merchantSummary.settledInr += Number(row.amount_inr || usdt * rate); merchantSummary.commissionEarnedInr += Number(row.merchant_commission_inr || (usdt * rate * Number(row.merchant_commission_rate || 4.5) / 100)); } } }
-    if (link.scope === "merchant") { for (const row of merchantSettlements.data || []) { merchantSummary.settledUsdt += Number(row.amount_usdt || 0); merchantSummary.settledInr += Number(row.amount_inr || 0); merchantSummary.commissionEarnedInr += Number(row.commission_inr || 0); } const reserved = (withdrawals.data || []).reduce((sum, row) => sum + Number(row.amount_inr || 0), 0), chargesInr = (charges.data || []).reduce((sum, row) => sum + Number(row.amount_inr || 0), 0); merchantSummary.chargesInr = chargesInr; merchantSummary.availableInr = Math.max(0, merchantSummary.totalCollectionInr - merchantSummary.frozenInr - merchantSummary.settledInr - reserved - chargesInr); merchantSummary.availableUsdt = merchantSummary.availableInr / merchantSummary.settlementRate; }
+    if (link.scope === "merchant") {
+      for (const row of merchantSettlements.data || []) {
+        merchantSummary.settledUsdt += Number(row.amount_usdt || 0);
+        merchantSummary.settledInr += Number(row.amount_inr || 0);
+        merchantSummary.commissionEarnedInr += Number(row.commission_inr || 0);
+      }
+
+      const reserved = (withdrawals.data || [])
+        .filter(row => row.status === "pending" && row.is_voided !== true)
+        .reduce((sum, row) => sum + Number(row.amount_inr || 0), 0);
+
+      const paidWithdrawals = (withdrawals.data || [])
+        .filter(row => row.status === "paid" && row.is_voided !== true)
+        .reduce((sum, row) => sum + Number(row.amount_inr || 0), 0);
+
+      const chargesInr = (charges.data || [])
+        .reduce((sum, row) => sum + Number(row.amount_inr || 0), 0);
+
+      merchantSummary.chargesInr = chargesInr;
+      merchantSummary.reservedInr = reserved;
+      merchantSummary.paidWithdrawalInr = paidWithdrawals;
+
+      merchantSummary.availableInr = Math.max(
+        0,
+        merchantSummary.totalCollectionInr
+          - merchantSummary.frozenInr
+          - merchantSummary.settledInr
+          - paidWithdrawals
+          - reserved
+          - chargesInr
+      );
+
+      merchantSummary.availableUsdt =
+        merchantSummary.availableInr / merchantSummary.settlementRate;
+    }
     if (privateView) { for (const row of deposits.data || []) state.deposits.push({ id: row.id, userId: (providers || []).find(provider => provider.id === row.provider_id)?.user_code, requestedUsdt: row.requested_usdt, expectedUsdt: row.expected_usdt, rate: row.rate, inrValue: row.inr_value, address: row.destination_address, status: row.status, txHash: row.tx_hash, createdAt: row.created_at, expiresAt: row.expires_at || "", confirmedAt: row.confirmed_at, source: row.source }); for (const row of withdrawals.data || []) state.withdrawals.push({ id: row.id, requesterType: row.requester_type, userId: state.users[0]?.id, accountId: row.upi_account_id || "", amountUsdt: row.amount_usdt, rate: row.rate, amountInr: row.amount_inr, address: row.destination_address, status: row.status, createdAt: row.created_at, paidAt: row.paid_at, isVoided: row.is_voided === true, voidedAt: row.voided_at || "", voidReason: row.void_reason || "", editedAt: row.edited_at || "", editReason: row.edit_reason || "" }); }
     return publicJson({ scope: link.scope, state });
   } catch (error) { return publicJson({ error: errorMessage(error) }, 400); }

@@ -1,4 +1,4 @@
-﻿
+
 (function(){
 "use strict";
 var backend=(window.SettleFlow&&window.SettleFlow.backend)||{configured:false};
@@ -42,7 +42,75 @@ function kpi(a,b,c){return '<div class="kpi"><small>'+a+'</small><strong>'+b+'</
 function modePill(u){return '<span class="modePill '+u.fundingMode+'">'+(u.fundingMode==="deposit"?'DEPOSIT BASED':'COMMISSION 3.5%')+'</span>'}
 function statusBadge(u){return u.status==="paused"?'<span class="badge amber">PAUSED</span>':u.status==="deleted"?'<span class="badge red">DELETED</span>':''}
 function label(t){return ({collection:"Collection",inr_received:"INR Withdrawal Received",user_usdt:"USDT From User",merchant_usdt:"Merchant USDT Settlement",frozen:"Frozen Fund"})[t]||t}
-function accountCalc(u,a){var es=entries(u.id).filter(function(e){return e.accountId===a.id&&!e.isVoided}),collection=0,withdrawal=0;es.forEach(function(e){if(e.type==="collection"&&e.status==="posted")collection+=Number(e.amount||0);if(e.type==="inr_received"&&e.status==="posted")withdrawal+=Number(e.amount||0)});if(a.accounting){collection=Number(a.accounting.total_collection_inr||a.collection||0);withdrawal=Number(a.accounting.successful_withdrawal_inr||0)}var limit=u.fundingMode==="deposit"?Number(a.allocatedLimit||0):Number(a.configuredLimit||0),exposure=u.fundingMode==="commission"?Math.max(0,collection-withdrawal):collection,available=a.availableLimit!=null?Number(a.availableLimit):(u.fundingMode==="deposit"?Math.max(0,limit-collection):Math.min(limit,Math.max(0,limit-exposure))),overLimit=Math.max(0,exposure-limit);return {collection:a.collection!=null?Number(a.collection):collection,withdrawal:withdrawal,exposure:exposure,limit:limit,available:available,overLimit:overLimit,pct:limit?Math.min(100,(exposure/limit)*100):0}}
+function accountCalc(u,a){
+  if(a.operationalAccounting){
+    var op=a.operationalAccounting;
+    var opCollection=Number(op.collectionInr||0);
+    var opWithdrawal=Number(op.withdrawalInr||0);
+    var opLimit=Number(op.limitInr||0);
+    var opAvailable=Number(op.availableInr||0);
+    var opUsed=Number(op.usedInr||0);
+
+    return {
+      collection:opCollection,
+      withdrawal:opWithdrawal,
+      exposure:opUsed,
+      limit:opLimit,
+      available:opAvailable,
+      overLimit:Math.max(0,opUsed-opLimit),
+      pct:Number(op.usedPct||0)
+    };
+  }
+
+  var es=entries(u.id).filter(function(e){
+    return e.accountId===a.id&&!e.isVoided
+  });
+
+  var collection=0,withdrawal=0;
+
+  es.forEach(function(e){
+    if(e.type==="collection"&&e.status==="posted")
+      collection+=Number(e.amount||0);
+
+    if(e.type==="inr_received"&&e.status==="posted")
+      withdrawal+=Number(e.amount||0)
+  });
+
+  if(a.accounting){
+    collection=Number(
+      a.accounting.total_collection_inr||a.collection||0
+    );
+    withdrawal=Number(
+      a.accounting.successful_withdrawal_inr||0
+    );
+  }
+
+  var limit=u.fundingMode==="deposit"
+    ?Number(a.allocatedLimit||0)
+    :Number(a.configuredLimit||0);
+
+  var exposure=u.fundingMode==="commission"
+    ?Math.max(0,collection-withdrawal)
+    :collection;
+
+  var available=a.availableLimit!=null
+    ?Number(a.availableLimit)
+    :(u.fundingMode==="deposit"
+      ?Math.max(0,limit-collection)
+      :Math.min(limit,Math.max(0,limit-exposure)));
+
+  var overLimit=Math.max(0,exposure-limit);
+
+  return {
+    collection:a.collection!=null?Number(a.collection):collection,
+    withdrawal:withdrawal,
+    exposure:exposure,
+    limit:limit,
+    available:available,
+    overLimit:overLimit,
+    pct:limit?Math.min(100,(exposure/limit)*100):0
+  };
+}
 function merchantAvailableValue(fallback){return db.merchantSettlement&&db.merchantSettlement.availableInr!=null?Number(db.merchantSettlement.availableInr):fallback}
 function accountCards(u,readonly){return (u.upiAccounts||[]).map(function(a){var c=accountCalc(u,a),cls=c.pct>=100?"red":c.pct>=80?"amber":"green",state=a.merchantOperational===false||a.status!=="active"?'PAUSED':'RUNNING';return '<div class="card accountCard"><div class="cardHead"><div><h3>'+esc(a.label||"UPI Account")+'</h3><div class="meta">'+esc(u.name)+' • '+esc(u.id)+'<br>'+esc(a.upi||"UPI not added")+' • '+esc(a.apk||a.mobile||"Not added")+'</div><div class="modeStrip">'+modePill(u)+' <span class="badge '+(state==="RUNNING"?'green':'amber')+'">'+state+'</span></div></div><span class="badge '+cls+'">Available Limit '+money(c.available)+'</span></div><div class="metrics">'+metric("Total Collection",money(c.collection))+metric("Available Limit",money(c.available))+metric("UPI ID",esc(a.upi||"-"))+metric("GPay Mobile",esc(a.mobile||a.apk||"-"))+'</div><div class="bar"><i style="width:'+c.pct+'%"></i></div><div class="cardActions">'+(readonly?'<button class="btn ghost sm" onclick="SF.readDetail(\''+u.id+'\')">View GPay Details</button>':'<button class="btn primary sm" onclick="SF.openUser(\''+u.id+'\')">Open User</button>')+'</div></div>'}).join("")}
 function card(u,readonly){if(u.upiAccounts&&u.upiAccounts.length)return accountCards(u,readonly);var c=calc(u),cls=c.capPct>=100?"red":c.capPct>=80?"amber":"green";if(readonly){return '<div class="card"><div class="cardHead"><div><h3>'+esc(u.name)+'</h3><div class="meta">'+esc(u.id)+'<br>'+esc(u.upi||"UPI not added")+' • APK: '+esc(u.apk||u.mobile||"Not added")+'</div></div><div>'+statusBadge(u)+'<span class="badge '+cls+'">Available Limit '+money(c.collectionCapacity)+'</span></div></div><div class="metrics">'+metric("Total Collection",money(c.collection))+metric("Available Limit",money(c.collectionCapacity))+metric("UPI ID",esc(u.upi||"-"))+metric("APK / Mobile",esc(u.apk||u.mobile||"-"))+'</div><div class="bar"><i style="width:'+c.capPct+'%"></i></div><div class="cardActions"><button class="btn ghost sm" onclick="SF.readDetail(\''+u.id+'\')">View GPay Details</button></div></div>'}return '<div class="card"><div class="cardHead"><div><h3>'+esc(u.name)+'</h3><div class="meta">'+esc(u.id)+' • '+esc(u.telegram||"-")+'<br>'+esc(u.upi||"UPI not added")+'</div><div class="modeStrip">'+modePill(u)+'</div></div><div>'+statusBadge(u)+'<span class="badge '+cls+'">'+c.capPct.toFixed(0)+'% used</span></div></div><div class="metrics">'+metric("Collection",money(c.collection))+metric("Available Limit",money(c.collectionCapacity))+(u.fundingMode==="deposit"?metric("Confirmed Deposit",usdt(c.confirmedDepositUsdt))+metric("Withdrawn",money(c.inrReceived)):metric("Withdrawn",money(c.inrReceived))+metric("Commission",money(c.commissionEarned)))+metric("Pending From User",money(c.pending))+metric("Frozen",money(c.frozen))+'</div><div class="bar"><i style="width:'+c.capPct+'%"></i></div><div class="cardActions"><button class="btn primary sm" onclick="SF.openUser(\''+u.id+'\')">Open Card</button><button class="btn ghost sm" onclick="SF.copyUser(\''+u.id+'\')">Copy User Link</button>'+ (staffRole==="admin"?'<button class="btn red sm" onclick="SF.deleteUser(\''+u.id+'\')">Delete</button>':'') +'</div></div>'}
